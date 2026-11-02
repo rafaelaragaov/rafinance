@@ -4,15 +4,54 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{% endblock %} · RaFinance</title>
+  <script>
+    /* Aplica o tema salvo antes de desenhar a página (evita piscar). */
+    try {
+      var t = JSON.parse(localStorage.getItem("rafinance-tema")) || {};
+      var r = document.documentElement;
+      if (t.modo === "light" || t.modo === "dark") r.dataset.theme = t.modo;
+      if (t.cor === "azul" || t.cor === "roxo") r.dataset.accent = t.cor;
+    } catch (e) {}
+  </script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f7a55'/%3E%3Ctext x='16' y='23' font-family='sans-serif' font-size='20' font-weight='700' text-anchor='middle' fill='white'%3ER%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
   <header class="topo">
     <a class="logo" href="{{ url_for('resumo') }}">Ra<span>Finance</span></a>
+
+    <div class="ferramentas">
+      <button type="button" class="icone mais" data-abrir-receita
+              aria-label="Adicionar receita" title="Adicionar receita">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+
+      <div class="tema">
+        <button type="button" class="icone" data-tema-toggle aria-label="Aparência"
+                aria-expanded="false" aria-controls="painel-tema" title="Aparência">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <div class="painel-tema" id="painel-tema" hidden>
+          <p class="titulo">Modo</p>
+          <div class="seg">
+            <button type="button" data-modo="light" aria-pressed="false">Claro</button>
+            <button type="button" data-modo="dark" aria-pressed="false">Escuro</button>
+            <button type="button" data-modo="auto" aria-pressed="true">Auto</button>
+          </div>
+          <p class="titulo">Cor</p>
+          <div class="cores">
+            <button type="button" class="cor" data-cor="verde" aria-label="Verde" title="Verde" aria-pressed="true"></button>
+            <button type="button" class="cor" data-cor="azul" aria-label="Azul" title="Azul" aria-pressed="false"></button>
+            <button type="button" class="cor" data-cor="roxo" aria-label="Roxo" title="Roxo" aria-pressed="false"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <nav>
       <a href="{{ url_for('resumo') }}" class="{{ 'ativo' if request.endpoint == 'resumo' }}">Resumo</a>
-      <a href="{{ url_for('lancamentos') }}" class="{{ 'ativo' if request.endpoint in ('lancamentos', 'editar') }}">Lançamentos</a>
+      <a href="{{ url_for('lancamentos') }}" class="{{ 'ativo' if request.endpoint in ('lancamentos', 'editar', 'editar_receita') }}">Lançamentos</a>
     </nav>
   </header>
 
@@ -25,5 +64,25 @@
 
     {% block content %}{% endblock %}
   </main>
+
+  <dialog class="dialogo" id="dialogo-receita" aria-labelledby="titulo-receita">
+    <div class="dialogo-corpo">
+      <div class="dialogo-topo">
+        <div>
+          <h2 id="titulo-receita">Nova receita</h2>
+          <p>Para quem recebe por quinzena: marque "Quinzenal".</p>
+        </div>
+        <button type="button" class="icone" data-fechar aria-label="Fechar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      {% set acao = url_for('adicionar_receita') %}
+      {% set receita = none %}
+      {% set next_url = request.full_path.rstrip('?') %}
+      {% set rotulo_botao = 'Adicionar receita' %}
+      {% set com_extras = true %}
+      {% include "_form_receita.html" %}
+    </div>
+  </dialog>
 </body>
 </html>

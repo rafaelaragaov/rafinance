@@ -16,8 +16,29 @@
   <div class="cartao destaque">
     <span class="rotulo">Este mês</span>
     <strong>{{ total_mes|brl }}</strong>
-    <small>{{ mes_label }} · média {{ media_diaria|brl }}/dia</small>
+    <small>{{ mes_label }}</small>
+    <small>média {{ media_diaria|brl }}/dia</small>
   </div>
+</section>
+
+<section class="bloco">
+  <div class="bloco-topo">
+    <h2>Saldo do mês</h2>
+    <span class="suave">{{ mes_label }}</span>
+  </div>
+  <div class="saldo-linhas">
+    <div><span>Recebido</span><strong class="positivo">{{ receita_recebida|brl }}</strong></div>
+    <div><span>Gasto</span><strong>{{ total_mes|brl }}</strong></div>
+    <div><span>Saldo</span><strong class="{{ 'positivo' if saldo_atual >= 0 else 'negativo' }}">{{ saldo_atual|brl }}</strong></div>
+  </div>
+  {% if tem_receitas %}
+    <p class="previsto">
+      Até o fim do mês: a receber <b>{{ a_receber|brl }}</b> · a pagar <b>{{ total_a_vencer|brl }}</b>
+      · saldo previsto <b class="{{ 'positivo' if saldo_previsto >= 0 else 'negativo' }}">{{ saldo_previsto|brl }}</b>
+    </p>
+  {% else %}
+    <p class="previsto">Toque no <b>+</b> no topo para adicionar sua receita (dá para marcar como quinzenal).</p>
+  {% endif %}
 </section>
 
 <section class="bloco">
@@ -26,6 +47,7 @@
   {% set gasto = none %}
   {% set next_url = none %}
   {% set rotulo_botao = 'Adicionar' %}
+  {% set com_recorrencia = true %}
   {% include "_form_gasto.html" %}
 </section>
 

@@ -1,0 +1,24 @@
+{# Checkbox "Recorrência" + meses clicáveis. Usado em gastos e receitas. #}
+<div class="recorrencia cheio" data-recorrencia>
+  <label class="check">
+    <input type="checkbox" name="recorrencia" value="1" data-rec-toggle>
+    Recorrência <small>(repete todo mês, como seguro, aluguel, salário)</small>
+  </label>
+  <div class="meses" data-rec-meses hidden>
+    <div class="meses-topo">
+      <span>Repetir nos meses:</span>
+      <button type="button" class="acao" data-rec-todos>marcar todos</button>
+      <button type="button" class="acao" data-rec-limpar>limpar</button>
+    </div>
+    <div class="chips" data-rec-chips>
+      {% for m in meses_g %}
+        <label class="chip">
+          <input type="checkbox" name="meses" value="{{ m.valor }}" checked>
+          <span>{{ m.rotulo }}</span>
+        </label>
+      {% endfor %}
+    </div>
+    <small>Cria um lançamento em cada mês marcado, no mesmo dia da data escolhida
+      (em meses mais curtos, no último dia). Os meses mudam conforme a data.</small>
+  </div>
+</div>

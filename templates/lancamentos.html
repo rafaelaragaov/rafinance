@@ -8,7 +8,7 @@
     <h2 class="mes">{{ mes_label }}</h2>
     <a class="seta" href="{{ url_for('lancamentos', mes=mes_proximo) }}" aria-label="Próximo mês">→</a>
   </div>
-  <p class="total-mes">Total do mês: <strong>{{ total|brl }}</strong>
+  <p class="total-mes">Gastos do mês: <strong>{{ total|brl }}</strong>
     {% if a_vencer_total %}<small>(inclui {{ a_vencer_total|brl }} a vencer)</small>{% endif %}
   </p>
 
@@ -45,11 +45,50 @@
 </section>
 
 <section class="bloco">
+  <div class="bloco-topo">
+    <h2>Receitas do mês</h2>
+    <strong class="valor positivo">{{ receitas_total|brl }}</strong>
+  </div>
+
+  {% if receitas %}
+    <ul class="lista">
+      {% for r in receitas %}
+        <li>
+          <div>
+            <strong>{{ r.descricao }}</strong>
+            <small>{{ r.data|data_curta }}{% if r.recorrencia_id %} · <span class="selo">recorrente</span>{% endif %}{% if r.data > hoje_iso %} · <span class="selo vencer">a receber</span>{% endif %}</small>
+          </div>
+          <div class="direita">
+            <span class="valor positivo">+ {{ r.valor_centavos|brl }}</span>
+            <a class="acao" href="{{ url_for('editar_receita', receita_id=r.id) }}">editar</a>
+            {% if r.recorrencia_id %}
+              <form method="post" action="{{ url_for('excluir_proximos_receita', receita_id=r.id) }}"
+                    onsubmit="return confirm('Excluir esta receita e as dos meses seguintes desta recorrência?')">
+                <input type="hidden" name="next" value="{{ url_for('lancamentos', mes=mes_atual) }}">
+                <button class="acao perigo" type="submit" title="Exclui esta e os meses seguintes">excluir próximos</button>
+              </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('excluir_receita', receita_id=r.id) }}"
+                  onsubmit="return confirm('Excluir esta receita?')">
+              <input type="hidden" name="next" value="{{ url_for('lancamentos', mes=mes_atual) }}">
+              <button class="acao perigo" type="submit">excluir</button>
+            </form>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="vazio">Nenhuma receita neste mês. Use o <b>+</b> no topo para adicionar.</p>
+  {% endif %}
+</section>
+
+<section class="bloco">
   <h2>Novo gasto</h2>
   {% set acao = url_for('adicionar') %}
   {% set gasto = none %}
   {% set next_url = url_for('lancamentos', mes=mes_atual) %}
   {% set rotulo_botao = 'Adicionar' %}
+  {% set com_recorrencia = true %}
   {% include "_form_gasto.html" %}
 </section>
 {% endblock %}

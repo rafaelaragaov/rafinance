@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS gastos (
     criado_em      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_gastos_data ON gastos (data);
+
+CREATE TABLE IF NOT EXISTS receitas (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    descricao      TEXT    NOT NULL,
+    valor_centavos INTEGER NOT NULL CHECK (valor_centavos > 0),
+    data           TEXT    NOT NULL,
+    recorrencia_id TEXT,
+    criado_em      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_receitas_data ON receitas (data);
 """
 
 app = Flask(__name__)
@@ -164,13 +174,43 @@ def ler_meses(valores):
     return sorted(meses)[:MAX_MESES_RECORRENCIA]
 
 
-def total_periodo(db, inicio, fim):
+def destino_seguro(valor, padrao):
+    """Só aceita caminhos internos (/algo) no campo `next`, nunca outro site."""
+    if valor and valor.startswith("/") and not valor.startswith("//") and "\\" not in valor:
+        return valor
+    return padrao
+
+
+@app.context_processor
+def globais():
+    """Disponível em todos os templates (o diálogo do + vive no base.html)."""
+    hoje = date.today()
+    return {"hoje_g": hoje, "meses_g": meses_a_partir(hoje)}
+
+
+def total_periodo(db, inicio, fim, tabela="gastos"):
+    assert tabela in ("gastos", "receitas")  # nome vem do código, nunca do usuário
     row = db.execute(
-        "SELECT COALESCE(SUM(valor_centavos), 0) AS total "
-        "FROM gastos WHERE data BETWEEN ? AND ?",
+        f"SELECT COALESCE(SUM(valor_centavos), 0) AS total "
+        f"FROM {tabela} WHERE data BETWEEN ? AND ?",
         (inicio.isoformat(), fim.isoformat()),
     ).fetchone()
     return row["total"]
+
+
+def ler_receita_basica():
+    """Descrição, valor e data de uma receita. Retorna ((descricao, valor, date), erro)."""
+    descricao = request.form.get("descricao", "").strip()
+    valor = parse_valor(request.form.get("valor"))
+    try:
+        data = date.fromisoformat(request.form.get("data", ""))
+    except ValueError:
+        data = date.today()
+    if not descricao:
+        return None, "Informe uma descrição."
+    if valor is None:
+        return None, "Informe um valor válido (ex.: 3.500,00)."
+    return (descricao, valor, data), None
 
 
 def ler_formulario():
@@ -255,6 +295,13 @@ def resumo():
     ).fetchall()
     total_a_vencer = sum(g_["valor_centavos"] for g_ in a_vencer)
 
+    # Saldo: "atual" = o que já aconteceu até hoje; "previsto" = mês inteiro.
+    receita_recebida = total_periodo(db, inicio_mes, hoje, "receitas")
+    receita_prevista = total_periodo(db, inicio_mes, fim_mes, "receitas")
+    a_receber = receita_prevista - receita_recebida
+    saldo_atual = receita_recebida - total_mes
+    saldo_previsto = receita_prevista - (total_mes + total_a_vencer)
+
     return render_template(
         "resumo.html",
         hoje=hoje,
@@ -270,14 +317,18 @@ def resumo():
         recentes=recentes,
         a_vencer=a_vencer,
         total_a_vencer=total_a_vencer,
+        receita_recebida=receita_recebida,
+        a_receber=a_receber,
+        tem_receitas=receita_prevista > 0,
+        saldo_atual=saldo_atual,
+        saldo_previsto=saldo_previsto,
         categorias_form=CATEGORIAS,
-        meses_opcoes=meses_a_partir(hoje),
     )
 
 
 @app.route("/gastos", methods=["POST"])
 def adicionar():
-    destino = request.form.get("next") or url_for("resumo")
+    destino = destino_seguro(request.form.get("next"), url_for("resumo"))
     dados, erro = ler_formulario()
     if erro:
         flash(erro, "erro")
@@ -332,6 +383,12 @@ def lancamentos():
         g_["valor_centavos"] for g_ in gastos if g_["data"] > hoje.isoformat()
     )
 
+    receitas = db.execute(
+        "SELECT * FROM receitas WHERE data BETWEEN ? AND ? ORDER BY data DESC, id DESC",
+        (inicio.isoformat(), fim.isoformat()),
+    ).fetchall()
+    receitas_total = sum(r_["valor_centavos"] for r_ in receitas)
+
     anterior = (inicio - timedelta(days=1)).replace(day=1)
     proximo = fim + timedelta(days=1)
 
@@ -339,6 +396,8 @@ def lancamentos():
         "lancamentos.html",
         gastos=gastos,
         total=total,
+        receitas=receitas,
+        receitas_total=receitas_total,
         mes_label=f"{MESES[inicio.month - 1]} de {inicio.year}",
         mes_anterior=anterior.strftime("%Y-%m"),
         mes_proximo=proximo.strftime("%Y-%m"),
@@ -347,7 +406,6 @@ def lancamentos():
         hoje=hoje,
         hoje_iso=hoje.isoformat(),
         a_vencer_total=a_vencer_total,
-        meses_opcoes=meses_a_partir(hoje),
     )
 
 
@@ -381,7 +439,7 @@ def excluir(gasto_id):
     db.execute("DELETE FROM gastos WHERE id = ?", (gasto_id,))
     db.commit()
     flash("Gasto excluído.", "ok")
-    return redirect(request.form.get("next") or url_for("lancamentos"))
+    return redirect(destino_seguro(request.form.get("next"), url_for("lancamentos")))
 
 
 @app.route("/gastos/<int:gasto_id>/excluir-proximos", methods=["POST"])
@@ -398,7 +456,120 @@ def excluir_proximos(gasto_id):
         )
         db.commit()
         flash(f"{cur.rowcount} gasto(s) da recorrência excluído(s).", "ok")
-    return redirect(request.form.get("next") or url_for("lancamentos"))
+    return redirect(destino_seguro(request.form.get("next"), url_for("lancamentos")))
+
+
+# --------------------------------------------------------------------------
+# Receitas (botão +)
+# --------------------------------------------------------------------------
+@app.route("/receitas", methods=["POST"])
+def adicionar_receita():
+    destino = destino_seguro(request.form.get("next"), url_for("resumo"))
+    dados, erro = ler_receita_basica()
+    if erro:
+        flash(erro, "erro")
+        return redirect(destino)
+    descricao, valor, data = dados
+
+    # Quinzenal: dois recebimentos por mês (o 1º no dia da data, o 2º em `dia2`).
+    quinzenal = bool(request.form.get("quinzenal"))
+    dia2 = valor2 = None
+    if quinzenal:
+        try:
+            dia2 = int(request.form.get("dia2", ""))
+        except ValueError:
+            dia2 = None
+        if dia2 is None or not 1 <= dia2 <= 31:
+            flash("Quinzenal: informe o dia do 2º recebimento (1 a 31).", "erro")
+            return redirect(destino)
+        if dia2 == data.day:
+            flash("Quinzenal: escolha dois dias diferentes no mês.", "erro")
+            return redirect(destino)
+        texto2 = request.form.get("valor2", "").strip()
+        valor2 = parse_valor(texto2) if texto2 else valor
+        if valor2 is None:
+            flash("Quinzenal: valor do 2º recebimento inválido.", "erro")
+            return redirect(destino)
+
+    recorrente = bool(request.form.get("recorrencia"))
+    if recorrente:
+        meses = ler_meses(request.form.getlist("meses"))
+        if not meses:
+            flash("Recorrência: marque pelo menos um mês.", "erro")
+            return redirect(destino)
+    else:
+        meses = [(data.year, data.month)]
+
+    grupo = uuid.uuid4().hex if recorrente else None
+    itens = []
+    for ano, mes in meses:
+        itens.append((vencimento(ano, mes, data.day), valor))
+        if quinzenal:
+            itens.append((vencimento(ano, mes, dia2), valor2))
+
+    db = get_db()
+    for dia, centavos in itens:
+        db.execute(
+            "INSERT INTO receitas (descricao, valor_centavos, data, recorrencia_id) "
+            "VALUES (?, ?, ?, ?)",
+            (descricao, centavos, dia.isoformat(), grupo),
+        )
+    db.commit()
+    flash(
+        "Receita registrada." if len(itens) == 1 else f"{len(itens)} receitas registradas.",
+        "ok",
+    )
+    return redirect(destino)
+
+
+@app.route("/receitas/<int:receita_id>/editar", methods=["GET", "POST"])
+def editar_receita(receita_id):
+    db = get_db()
+    receita = db.execute("SELECT * FROM receitas WHERE id = ?", (receita_id,)).fetchone()
+    if receita is None:
+        abort(404)
+
+    if request.method == "POST":
+        dados, erro = ler_receita_basica()
+        if erro:
+            flash(erro, "erro")
+        else:
+            descricao, valor, data = dados
+            db.execute(
+                "UPDATE receitas SET descricao = ?, valor_centavos = ?, data = ? WHERE id = ?",
+                (descricao, valor, data.isoformat(), receita_id),
+            )
+            db.commit()
+            flash("Receita atualizada.", "ok")
+            return redirect(url_for("lancamentos", mes=data.isoformat()[:7]))
+
+    return render_template("editar_receita.html", receita=receita)
+
+
+@app.route("/receitas/<int:receita_id>/excluir", methods=["POST"])
+def excluir_receita(receita_id):
+    db = get_db()
+    db.execute("DELETE FROM receitas WHERE id = ?", (receita_id,))
+    db.commit()
+    flash("Receita excluída.", "ok")
+    return redirect(destino_seguro(request.form.get("next"), url_for("lancamentos")))
+
+
+@app.route("/receitas/<int:receita_id>/excluir-proximos", methods=["POST"])
+def excluir_proximos_receita(receita_id):
+    """Exclui esta receita recorrente e as dos meses seguintes (as anteriores ficam)."""
+    db = get_db()
+    receita = db.execute("SELECT * FROM receitas WHERE id = ?", (receita_id,)).fetchone()
+    if receita is None:
+        abort(404)
+    if receita["recorrencia_id"]:
+        cur = db.execute(
+            "DELETE FROM receitas WHERE recorrencia_id = ? AND data >= ?",
+            (receita["recorrencia_id"], receita["data"]),
+        )
+        db.commit()
+        flash(f"{cur.rowcount} receita(s) da recorrência excluída(s).", "ok")
+    return redirect(destino_seguro(request.form.get("next"), url_for("lancamentos")))
 
 
 init_db()

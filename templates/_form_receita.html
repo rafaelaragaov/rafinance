@@ -1,0 +1,47 @@
+{# Formulário de receita. Variáveis: acao, receita (opcional), next_url (opcional), rotulo_botao, com_extras (quinzena + recorrência) #}
+<form method="post" action="{{ acao }}" class="form-receita">
+  {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+
+  <label class="campo cheio">
+    Descrição
+    <input type="text" name="descricao" required maxlength="80"
+           placeholder="Ex.: Salário, Freelance"
+           value="{{ receita.descricao if receita else '' }}">
+  </label>
+
+  <label class="campo">
+    Valor (R$)
+    <input type="text" name="valor" inputmode="decimal" required placeholder="0,00"
+           value="{{ ('%d,%02d' % (receita.valor_centavos // 100, receita.valor_centavos % 100)) if receita else '' }}">
+  </label>
+
+  <label class="campo">
+    Data {% if com_extras %}do 1º recebimento{% endif %}
+    <input type="date" name="data" required
+           value="{{ receita.data if receita else hoje_g.isoformat() }}">
+  </label>
+
+  {% if com_extras %}
+  <div class="cheio" data-quinzena>
+    <label class="check">
+      <input type="checkbox" name="quinzenal" value="1" data-quinzena-toggle>
+      Quinzenal <small>(recebo duas vezes por mês)</small>
+    </label>
+    <div class="quinzena-campos" data-quinzena-campos hidden>
+      <label class="campo">
+        Dia do 2º recebimento
+        <input type="number" name="dia2" min="1" max="31" inputmode="numeric" value="20">
+      </label>
+      <label class="campo">
+        Valor do 2º (opcional)
+        <input type="text" name="valor2" inputmode="decimal" placeholder="igual ao 1º">
+      </label>
+      <small>O 1º recebimento usa o dia da data acima. Se o 2º valor ficar vazio, usa o mesmo do 1º.</small>
+    </div>
+  </div>
+
+  {% include "_recorrencia.html" %}
+  {% endif %}
+
+  <button type="submit" class="botao cheio">{{ rotulo_botao }}</button>
+</form>

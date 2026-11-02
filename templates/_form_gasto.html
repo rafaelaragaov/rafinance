@@ -1,4 +1,4 @@
-{# Formulário reutilizável. Variáveis: acao, gasto (opcional), next_url (opcional), rotulo_botao #}
+{# Formulário de gasto. Variáveis: acao, gasto (opcional), next_url (opcional), rotulo_botao, com_recorrencia (opcional) #}
 <form method="post" action="{{ acao }}" class="form-gasto">
   {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
 
@@ -27,34 +27,10 @@
   <label class="campo">
     Data
     <input type="date" name="data" required
-           value="{{ gasto.data if gasto else hoje.isoformat() }}">
+           value="{{ gasto.data if gasto else hoje_g.isoformat() }}">
   </label>
 
-  {% if meses_opcoes %}
-  <div class="recorrencia" data-recorrencia>
-    <label class="check">
-      <input type="checkbox" name="recorrencia" value="1" data-rec-toggle>
-      Recorrência <small>(repete todo mês, como seguro, aluguel, assinatura)</small>
-    </label>
-    <div class="meses" data-rec-meses hidden>
-      <div class="meses-topo">
-        <span>Repetir nos meses:</span>
-        <button type="button" class="acao" data-rec-todos>marcar todos</button>
-        <button type="button" class="acao" data-rec-limpar>limpar</button>
-      </div>
-      <div class="chips" data-rec-chips>
-        {% for m in meses_opcoes %}
-          <label class="chip">
-            <input type="checkbox" name="meses" value="{{ m.valor }}" checked>
-            <span>{{ m.rotulo }}</span>
-          </label>
-        {% endfor %}
-      </div>
-      <small>Cria um gasto em cada mês marcado, no mesmo dia da data escolhida
-        (em meses mais curtos, no último dia). Os meses mudam conforme a data.</small>
-    </div>
-  </div>
-  {% endif %}
+  {% if com_recorrencia %}{% include "_recorrencia.html" %}{% endif %}
 
   <button type="submit" class="botao">{{ rotulo_botao }}</button>
 </form>

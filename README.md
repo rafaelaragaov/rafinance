@@ -3,15 +3,37 @@
 Gestão financeira pessoal, simples e minimalista. Registre seus gastos em segundos e veja
 na hora quanto gastou **hoje**, **nesta semana** e **neste mês**.
 
-> Protótipo v0.2 — em desenvolvimento.
+> Protótipo v0.3 — em desenvolvimento.
 
 ## Telas
 
 | Tela | O que faz |
 |------|-----------|
-| **Resumo** | Totais de hoje / semana / mês, média diária, gráfico dos últimos 7 dias, gastos por categoria, bloco "A vencer neste mês" e formulário rápido de novo gasto |
-| **Lançamentos** | Lista de gastos por mês (navegação ← →), com editar e excluir |
-| **Editar** | Corrige descrição, valor, categoria ou data de um gasto |
+| **Resumo** | Totais de hoje / semana / mês, **saldo do mês**, gráfico dos últimos 7 dias, gastos por categoria, bloco "A vencer neste mês" e formulário rápido de novo gasto |
+| **Lançamentos** | Gastos e receitas por mês (navegação ← →), com editar e excluir |
+| **Editar** | Corrige um gasto ou uma receita |
+
+Em todas as telas, o topo tem dois ícones: **+** (adicionar receita) e **◐** (aparência).
+
+### Receitas e saldo (botão +)
+
+O **+** abre o formulário de **Nova receita** (salário, freelance...). Quem recebe por quinzena marca
+**Quinzenal**: informa o dia do 2º recebimento (e, se for diferente, o valor do 2º) e o RaFinance
+cria **dois recebimentos por mês**. Combinado com **Recorrência**, cria os dois recebimentos em
+cada mês escolhido (ex.: dia 5 e dia 20, de novembro a abril).
+
+O **Saldo do mês** no Resumo mostra *recebido − gasto* até hoje e, abaixo, o previsto até o fim do
+mês (a receber, a pagar e saldo previsto).
+
+### Aparência
+
+O ícone **◐** abre um painel minimalista com:
+
+- **Modo:** Claro, Escuro ou Auto (segue o sistema);
+- **Cor:** 3 paletas prontas — verde (padrão), azul e roxo.
+
+A escolha fica salva no navegador. O CSS usa variáveis com `light-dark()`, então uma única
+definição de cor serve para os dois modos.
 
 ### Recorrência (gastos que se repetem todo mês)
 
@@ -66,16 +88,17 @@ rafinance/
 ├── requirements.txt
 ├── static/
 │   ├── style.css
-│   └── app.js          # checkbox Recorrência e seleção de meses
-├── templates/          # base, resumo, lançamentos, editar
+│   └── app.js          # tema, diálogo do +, quinzena e recorrência
+├── templates/          # base, resumo, lançamentos, editar (gasto e receita) e partials _form_*
 └── tests/test_app.py
 ```
 
 ## Roadmap
 
-- [ ] Receitas e saldo do mês
+- [x] Receitas (botão +, quinzenal) e saldo do mês
+- [x] Temas: modo claro/escuro e 3 cores
 - [ ] Metas / orçamento por categoria
 - [x] Gastos recorrentes (checkbox Recorrência + seleção de meses)
-- [ ] Editar/excluir uma recorrência inteira de uma vez
+- [ ] Editar uma recorrência inteira de uma vez (hoje só dá para excluir "daqui para frente")
 - [ ] Exportar para CSV
 - [ ] Login e uso em mais de um dispositivo

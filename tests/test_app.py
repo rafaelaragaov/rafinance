@@ -199,12 +199,162 @@ class RaFinanceTests(unittest.TestCase):
         )
         self.assertEqual(opcoes[2]["rotulo"], "jan/27")
 
+    def formulario(self, pagina, acao):
+        """Trecho HTML do <form> cuja action é `acao`."""
+        achado = re.search(
+            rf'<form[^>]*action="{re.escape(acao)}"[^>]*>.*?</form>', pagina, re.S
+        )
+        self.assertIsNotNone(achado, f"form {acao} não encontrado")
+        return achado.group(0)
+
     def test_formulario_tem_recorrencia_so_ao_criar(self):
         pagina = self.client.get("/").data.decode()
-        self.assertIn("Recorrência", pagina)
-        self.assertEqual(pagina.count('name="meses"'), 12)
+        # gasto + diálogo de receita: cada um com seus 12 meses
+        self.assertEqual(pagina.count("data-recorrencia"), 2)
+        self.assertEqual(self.formulario(pagina, "/gastos").count('name="meses"'), 12)
         self.adicionar("Algo", "5,00", date.today())
-        self.assertNotIn("Recorrência", self.client.get("/gastos/1/editar").data.decode())
+        edicao = self.client.get("/gastos/1/editar").data.decode()
+        self.assertNotIn("data-recorrencia", self.formulario(edicao, "/gastos/1/editar"))
+
+    # ------------------------------------------------------------------ receitas
+    def receita(self, descricao="Salário", valor="1.500,00", data=None, **extras):
+        dados = {"descricao": descricao, "valor": valor,
+                 "data": (data or date.today()).isoformat()}
+        dados.update(extras)
+        return self.client.post("/receitas", data=dados, follow_redirects=True)
+
+    def receitas_no_banco(self):
+        with rafinance.app.app_context():
+            db = rafinance.get_db()
+            return [dict(r) for r in db.execute("SELECT * FROM receitas ORDER BY data, id")]
+
+    def test_receita_simples(self):
+        resposta = self.receita(data=date(2026, 3, 5))
+        self.assertIn("Receita registrada".encode(), resposta.data)
+        [r] = self.receitas_no_banco()
+        self.assertEqual((r["descricao"], r["valor_centavos"], r["data"]),
+                         ("Salário", 150000, "2026-03-05"))
+        self.assertIsNone(r["recorrencia_id"])
+
+    def test_receita_quinzenal_cria_dois_recebimentos_no_mes(self):
+        self.receita(data=date(2026, 3, 5), quinzenal="1", dia2="20")
+        self.assertEqual(
+            [(r["data"], r["valor_centavos"]) for r in self.receitas_no_banco()],
+            [("2026-03-05", 150000), ("2026-03-20", 150000)],
+        )
+
+    def test_receita_quinzenal_com_valor_diferente_no_segundo(self):
+        self.receita(data=date(2026, 3, 5), quinzenal="1", dia2="20", valor2="900,50")
+        self.assertEqual(
+            [r["valor_centavos"] for r in self.receitas_no_banco()], [150000, 90050]
+        )
+
+    def test_receita_quinzenal_recorrente_cria_dois_por_mes_marcado(self):
+        self.receita(data=date(2026, 1, 15), quinzenal="1", dia2="31",
+                     recorrencia="1", meses=["2026-01", "2026-02", "2026-03"])
+        recebimentos = self.receitas_no_banco()
+        self.assertEqual(
+            [r["data"] for r in recebimentos],
+            ["2026-01-15", "2026-01-31", "2026-02-15", "2026-02-28",
+             "2026-03-15", "2026-03-31"],  # dia 31 vira 28 em fevereiro
+        )
+        self.assertEqual(len({r["recorrencia_id"] for r in recebimentos}), 1)
+
+    def test_receita_quinzenal_valida_o_segundo_dia(self):
+        for extras in ({"dia2": ""}, {"dia2": "0"}, {"dia2": "32"}, {"dia2": "abc"},
+                       {"dia2": "5"},                      # igual ao dia do 1º
+                       {"dia2": "20", "valor2": "xx"}):    # valor inválido
+            resposta = self.receita(data=date(2026, 3, 5), quinzenal="1", **extras)
+            self.assertIn("Quinzenal".encode(), resposta.data, extras)
+        self.assertEqual(self.receitas_no_banco(), [])
+
+    def test_receita_sem_quinzenal_ignora_dia2(self):
+        self.receita(data=date(2026, 3, 5), dia2="20")
+        self.assertEqual(len(self.receitas_no_banco()), 1)
+
+    def test_receita_valida_descricao_e_valor(self):
+        self.assertIn("Informe uma descrição".encode(), self.receita(descricao="").data)
+        self.assertIn("valor válido".encode(), self.receita(valor="abc").data)
+        self.assertEqual(self.receitas_no_banco(), [])
+
+    def test_receita_recorrencia_sem_meses_nao_cria_nada(self):
+        resposta = self.receita(recorrencia="1")
+        self.assertIn("marque pelo menos um mês".encode(), resposta.data)
+        self.assertEqual(self.receitas_no_banco(), [])
+
+    def test_editar_e_excluir_receita(self):
+        self.receita(descricao="Errada", valor="10,00", data=date(2026, 3, 5))
+        self.client.post("/receitas/1/editar", data={
+            "descricao": "Certa", "valor": "20,00", "data": "2026-03-06"})
+        [r] = self.receitas_no_banco()
+        self.assertEqual((r["descricao"], r["valor_centavos"], r["data"]),
+                         ("Certa", 2000, "2026-03-06"))
+        self.assertEqual(self.client.get("/receitas/1/editar").status_code, 200)
+        self.client.post("/receitas/1/excluir")
+        self.assertEqual(self.receitas_no_banco(), [])
+        self.assertEqual(self.client.get("/receitas/99/editar").status_code, 404)
+
+    def test_excluir_proximos_receita_mantem_as_anteriores(self):
+        self.receita(data=date(2026, 1, 5), recorrencia="1",
+                     meses=["2026-01", "2026-02", "2026-03"])
+        segunda = self.receitas_no_banco()[1]
+        self.client.post(f"/receitas/{segunda['id']}/excluir-proximos")
+        self.assertEqual([r["data"] for r in self.receitas_no_banco()], ["2026-01-05"])
+
+    def test_saldo_do_mes_no_resumo(self):
+        hoje = date.today()
+        self.receita(valor="1.000,00", data=hoje)
+        self.adicionar("Mercado", "300,00", hoje)
+        pagina = self.client.get("/").data.decode()
+        self.assertIn("Saldo do mês", pagina)
+        self.assertRegex(pagina, r'class="positivo">R\$ 1\.000,00</strong>')   # recebido
+        self.assertRegex(pagina, r'class="positivo">R\$ 700,00</strong>')     # saldo
+
+    def test_saldo_negativo_aparece_em_vermelho(self):
+        self.adicionar("Gasto grande", "50,00", date.today())
+        pagina = self.client.get("/").data.decode()
+        self.assertRegex(pagina, r'class="negativo">-R\$ 50,00</strong>')
+
+    def test_receita_futura_fica_fora_do_saldo_atual_mas_entra_no_previsto(self):
+        hoje = date.today()
+        amanha = hoje + timedelta(days=1)
+        if amanha.month != hoje.month:
+            self.skipTest("hoje é o último dia do mês")
+        self.receita(valor="500,00", data=amanha)
+        pagina = self.client.get("/").data.decode()
+        self.assertNotRegex(pagina, r'class="positivo">R\$ 500,00</strong>')   # recebido
+        self.assertIn("a receber <b>R$ 500,00</b>", pagina)
+        self.assertRegex(pagina, r'saldo previsto <b class="positivo">R\$ 500,00</b>')
+
+    def test_lancamentos_lista_receitas_do_mes(self):
+        self.receita(descricao="Adiantamento", valor="800,00", data=date(2026, 3, 5))
+        self.assertIn("Adiantamento".encode(), self.client.get("/lancamentos?mes=2026-03").data)
+        self.assertNotIn("Adiantamento".encode(), self.client.get("/lancamentos?mes=2026-04").data)
+
+    def test_botao_mais_esta_em_todas_as_telas(self):
+        self.adicionar("Algo", "5,00", date.today())
+        self.receita()
+        for rota in ("/", "/lancamentos", "/gastos/1/editar", "/receitas/1/editar"):
+            pagina = self.client.get(rota).data.decode()
+            self.assertIn("data-abrir-receita", pagina, rota)
+            self.assertIn('id="dialogo-receita"', pagina, rota)
+            self.assertIn('name="quinzenal"', pagina, rota)
+
+    # ---------------------------------------------------------------------- tema
+    def test_seletor_de_tema_tem_tres_modos_e_tres_cores(self):
+        pagina = self.client.get("/").data.decode()
+        self.assertEqual(re.findall(r'data-modo="(\w+)"', pagina), ["light", "dark", "auto"])
+        self.assertEqual(re.findall(r'data-cor="(\w+)"', pagina), ["verde", "azul", "roxo"])
+
+    # ------------------------------------------------------------------ segurança
+    def test_next_externo_e_ignorado(self):
+        for destino in ("https://exemplo.com", "//exemplo.com", "/\\exemplo.com"):
+            resposta = self.client.post("/receitas", data={
+                "descricao": "X", "valor": "1", "data": "2026-03-05", "next": destino})
+            self.assertEqual(resposta.headers["Location"], "/", destino)
+        resposta = self.client.post("/receitas", data={
+            "descricao": "X", "valor": "1", "data": "2026-03-05", "next": "/lancamentos?mes=2026-03"})
+        self.assertEqual(resposta.headers["Location"], "/lancamentos?mes=2026-03")
 
     def test_migra_banco_da_v01(self):
         fd, caminho = tempfile.mkstemp(suffix=".db")
