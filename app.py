@@ -198,6 +198,20 @@ def total_periodo(db, inicio, fim, tabela="gastos"):
     return row["total"]
 
 
+def ler_recorrencia_na_edicao(data_nova):
+    """Meses pedidos ao marcar 'Recorrência' ao editar um lançamento avulso.
+
+    Retorna (meses extras, erro). O mês do próprio lançamento fica de fora,
+    porque ele já existe: só os outros meses ganham uma cópia.
+    """
+    if not request.form.get("recorrencia"):
+        return [], None
+    meses = ler_meses(request.form.getlist("meses"))
+    if not meses:
+        return [], "Recorrência: marque pelo menos um mês."
+    return [m for m in meses if m != (data_nova.year, data_nova.month)], None
+
+
 def ler_receita_basica():
     """Descrição, valor e data de uma receita. Retorna ((descricao, valor, date), erro)."""
     descricao = request.form.get("descricao", "").strip()
@@ -418,19 +432,41 @@ def editar(gasto_id):
 
     if request.method == "POST":
         dados, erro = ler_formulario()
+        extras = []
+        # Só lançamentos avulsos podem virar recorrentes (os demais já têm grupo).
+        if not erro and not gasto["recorrencia_id"]:
+            extras, erro = ler_recorrencia_na_edicao(date.fromisoformat(dados[3]))
         if erro:
             flash(erro, "erro")
         else:
+            descricao, valor, categoria, data_iso = dados
+            grupo = uuid.uuid4().hex if extras else None
             db.execute(
-                "UPDATE gastos SET descricao = ?, valor_centavos = ?, "
-                "categoria = ?, data = ? WHERE id = ?",
-                (*dados, gasto_id),
+                "UPDATE gastos SET descricao = ?, valor_centavos = ?, categoria = ?, "
+                "data = ?, recorrencia_id = COALESCE(?, recorrencia_id) WHERE id = ?",
+                (descricao, valor, categoria, data_iso, grupo, gasto_id),
             )
+            dia = date.fromisoformat(data_iso).day
+            for ano, mes in extras:
+                db.execute(
+                    "INSERT INTO gastos (descricao, valor_centavos, categoria, data, recorrencia_id) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (descricao, valor, categoria, vencimento(ano, mes, dia).isoformat(), grupo),
+                )
             db.commit()
-            flash("Gasto atualizado.", "ok")
-            return redirect(url_for("lancamentos", mes=dados[3][:7]))
+            flash(
+                f"Gasto atualizado e repetido em mais {len(extras)} mês(es)."
+                if extras else "Gasto atualizado.",
+                "ok",
+            )
+            return redirect(url_for("lancamentos", mes=data_iso[:7]))
 
-    return render_template("editar.html", gasto=gasto, categorias_form=CATEGORIAS)
+    return render_template(
+        "editar.html",
+        gasto=gasto,
+        categorias_form=CATEGORIAS,
+        meses_edicao=meses_a_partir(date.fromisoformat(gasto["data"])),
+    )
 
 
 @app.route("/gastos/<int:gasto_id>/excluir", methods=["POST"])
@@ -531,19 +567,38 @@ def editar_receita(receita_id):
 
     if request.method == "POST":
         dados, erro = ler_receita_basica()
+        extras = []
+        if not erro and not receita["recorrencia_id"]:
+            extras, erro = ler_recorrencia_na_edicao(dados[2])
         if erro:
             flash(erro, "erro")
         else:
             descricao, valor, data = dados
+            grupo = uuid.uuid4().hex if extras else None
             db.execute(
-                "UPDATE receitas SET descricao = ?, valor_centavos = ?, data = ? WHERE id = ?",
-                (descricao, valor, data.isoformat(), receita_id),
+                "UPDATE receitas SET descricao = ?, valor_centavos = ?, data = ?, "
+                "recorrencia_id = COALESCE(?, recorrencia_id) WHERE id = ?",
+                (descricao, valor, data.isoformat(), grupo, receita_id),
             )
+            for ano, mes in extras:
+                db.execute(
+                    "INSERT INTO receitas (descricao, valor_centavos, data, recorrencia_id) "
+                    "VALUES (?, ?, ?, ?)",
+                    (descricao, valor, vencimento(ano, mes, data.day).isoformat(), grupo),
+                )
             db.commit()
-            flash("Receita atualizada.", "ok")
+            flash(
+                f"Receita atualizada e repetida em mais {len(extras)} mês(es)."
+                if extras else "Receita atualizada.",
+                "ok",
+            )
             return redirect(url_for("lancamentos", mes=data.isoformat()[:7]))
 
-    return render_template("editar_receita.html", receita=receita)
+    return render_template(
+        "editar_receita.html",
+        receita=receita,
+        meses_edicao=meses_a_partir(date.fromisoformat(receita["data"])),
+    )
 
 
 @app.route("/receitas/<int:receita_id>/excluir", methods=["POST"])

@@ -11,14 +11,20 @@
       <button type="button" class="acao" data-rec-limpar>limpar</button>
     </div>
     <div class="chips" data-rec-chips>
-      {% for m in meses_g %}
+      {# Na edição, os meses partem do mês do lançamento; nos demais casos, de hoje. #}
+      {% for m in (meses_edicao or meses_g) %}
         <label class="chip">
           <input type="checkbox" name="meses" value="{{ m.valor }}" checked>
           <span>{{ m.rotulo }}</span>
         </label>
       {% endfor %}
     </div>
-    <small>Cria um lançamento em cada mês marcado, no mesmo dia da data escolhida
-      (em meses mais curtos, no último dia). Os meses mudam conforme a data.</small>
+    {% if modo_edicao %}
+      <small>Mantém este lançamento como está e cria uma cópia em cada um dos outros meses
+        marcados, no mesmo dia (em meses mais curtos, no último dia).</small>
+    {% else %}
+      <small>Cria um lançamento em cada mês marcado, no mesmo dia da data escolhida
+        (em meses mais curtos, no último dia). Os meses mudam conforme a data.</small>
+    {% endif %}
   </div>
 </div>

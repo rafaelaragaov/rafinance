@@ -277,6 +277,8 @@ input:focus, select:focus { outline: 2px solid var(--acento); outline-offset: -1
 .chip input:checked + span { background: var(--acento-claro); border-color: var(--acento); color: var(--acento); font-weight: 600; }
 .chip input:focus-visible + span { outline: 2px solid var(--acento); outline-offset: 2px; }
 
+.nota { margin: 0; color: var(--suave); font-size: .85rem; }
+
 .selo {
   display: inline-block;
   padding: 0 7px;

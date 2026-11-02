@@ -45,6 +45,10 @@ gasto em cada um, **no mesmo dia** (em meses mais curtos, no último dia: 31 →
   aparece em **A vencer neste mês**.
 - Na tela Lançamentos, itens recorrentes têm o selo `recorrente` e o botão **excluir próximos**
   (apaga aquele mês e os seguintes, mantendo os anteriores).
+- **Dá para tornar recorrente um lançamento que já existe:** em Lançamentos, clique em **editar**,
+  marque **Recorrência** e escolha os meses. O lançamento atual fica como está e o app cria uma
+  cópia em cada um dos outros meses marcados (vale para gastos e receitas). Quem já é recorrente
+  mostra um aviso no lugar do checkbox.
 - Bancos criados na v0.1 são migrados automaticamente ao abrir o app.
 
 ## Tecnologias

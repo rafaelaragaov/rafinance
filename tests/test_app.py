@@ -207,14 +207,117 @@ class RaFinanceTests(unittest.TestCase):
         self.assertIsNotNone(achado, f"form {acao} não encontrado")
         return achado.group(0)
 
-    def test_formulario_tem_recorrencia_so_ao_criar(self):
+    def test_formulario_de_criar_tem_recorrencia(self):
         pagina = self.client.get("/").data.decode()
         # gasto + diálogo de receita: cada um com seus 12 meses
         self.assertEqual(pagina.count("data-recorrencia"), 2)
         self.assertEqual(self.formulario(pagina, "/gastos").count('name="meses"'), 12)
-        self.adicionar("Algo", "5,00", date.today())
+
+    # --------------------------------------------- recorrência ao editar (avulso -> recorrente)
+    def primeiro_gasto(self):
+        with rafinance.app.app_context():
+            return dict(rafinance.get_db().execute("SELECT * FROM gastos ORDER BY id").fetchone())
+
+    def editar_gasto(self, gasto_id, **campos):
+        dados = {"descricao": "Seguro", "valor": "350,00", "categoria": "Contas",
+                 "data": "2026-03-10"}
+        dados.update(campos)
+        return self.client.post(f"/gastos/{gasto_id}/editar", data=dados, follow_redirects=True)
+
+    def test_editar_gasto_avulso_oferece_recorrencia_a_partir_do_mes_dele(self):
+        self.adicionar("Seguro", "350,00", date(2026, 3, 10), "Contas")
         edicao = self.client.get("/gastos/1/editar").data.decode()
-        self.assertNotIn("data-recorrencia", self.formulario(edicao, "/gastos/1/editar"))
+        form = self.formulario(edicao, "/gastos/1/editar")
+        self.assertIn("data-recorrencia", form)
+        self.assertEqual(re.findall(r'name="meses" value="([\d-]+)"', form)[:3],
+                         ["2026-03", "2026-04", "2026-05"])
+        # o diálogo do + continua começando em hoje, não no mês do lançamento
+        dialogo = self.formulario(edicao, "/receitas")
+        self.assertEqual(re.findall(r'name="meses" value="([\d-]+)"', dialogo)[0],
+                         date.today().strftime("%Y-%m"))
+
+    def test_editar_gasto_marcando_recorrencia_cria_copias_e_mantem_o_original(self):
+        self.adicionar("Seguro", "350,00", date(2026, 3, 10), "Contas")
+        resposta = self.editar_gasto(1, recorrencia="1",
+                                     meses=["2026-03", "2026-04", "2026-06"])
+        self.assertIn("repetido em mais 2 mês".encode(), resposta.data)
+        gastos = self.gastos_no_banco()
+        self.assertEqual([g["data"] for g in gastos], ["2026-03-10", "2026-04-10", "2026-06-10"])
+        self.assertEqual(gastos[0]["id"], 1)                       # o original continua sendo o mesmo
+        self.assertEqual(len({g["recorrencia_id"] for g in gastos}), 1)
+        self.assertIsNotNone(gastos[0]["recorrencia_id"])
+        self.assertEqual({(g["descricao"], g["valor_centavos"], g["categoria"]) for g in gastos},
+                         {("Seguro", 35000, "Contas")})
+
+    def test_editar_gasto_recorrente_aplica_as_mudancas_nas_copias(self):
+        self.adicionar("Antigo", "10,00", date(2026, 3, 31), "Outros")
+        self.editar_gasto(1, descricao="Novo", valor="20,00", data="2026-03-31",
+                          recorrencia="1", meses=["2026-03", "2026-04"])
+        gastos = self.gastos_no_banco()
+        self.assertEqual([g["data"] for g in gastos], ["2026-03-31", "2026-04-30"])  # dia 31 -> 30
+        self.assertEqual({g["descricao"] for g in gastos}, {"Novo"})
+
+    def test_editar_gasto_mudando_a_data_usa_o_dia_novo_nas_copias(self):
+        self.adicionar("Seguro", "350,00", date(2026, 3, 5), "Contas")
+        self.editar_gasto(1, data="2026-03-12", recorrencia="1", meses=["2026-03", "2026-04"])
+        self.assertEqual([g["data"] for g in self.gastos_no_banco()], ["2026-03-12", "2026-04-12"])
+
+    def test_editar_gasto_so_com_o_proprio_mes_nao_cria_recorrencia(self):
+        self.adicionar("Seguro", "350,00", date(2026, 3, 10), "Contas")
+        self.editar_gasto(1, descricao="Seguro 2", recorrencia="1", meses=["2026-03"])
+        [g] = self.gastos_no_banco()
+        self.assertEqual(g["descricao"], "Seguro 2")
+        self.assertIsNone(g["recorrencia_id"])
+
+    def test_editar_gasto_recorrencia_sem_meses_da_erro_e_nao_altera_nada(self):
+        self.adicionar("Seguro", "350,00", date(2026, 3, 10), "Contas")
+        resposta = self.editar_gasto(1, descricao="Mudou", recorrencia="1")
+        self.assertIn("marque pelo menos um mês".encode(), resposta.data)
+        [g] = self.gastos_no_banco()
+        self.assertEqual(g["descricao"], "Seguro")
+        self.assertIsNone(g["recorrencia_id"])
+
+    def test_editar_sem_marcar_recorrencia_nao_cria_copias(self):
+        self.adicionar("Seguro", "350,00", date(2026, 3, 10), "Contas")
+        self.editar_gasto(1, meses=["2026-03", "2026-04"])   # meses enviados, checkbox desmarcado
+        self.assertEqual(len(self.gastos_no_banco()), 1)
+
+    def test_gasto_ja_recorrente_nao_oferece_nem_aceita_nova_recorrencia(self):
+        self.recorrente(date(2026, 3, 10), ["2026-03", "2026-04"])
+        edicao = self.client.get("/gastos/1/editar").data.decode()
+        form = self.formulario(edicao, "/gastos/1/editar")
+        self.assertNotIn("data-recorrencia", form)
+        self.assertIn("já faz parte de uma recorrência", form)
+        self.editar_gasto(1, recorrencia="1", meses=["2026-03", "2026-05", "2026-06"])
+        self.assertEqual(len(self.gastos_no_banco()), 2)       # nada foi criado
+
+    def test_editar_receita_marcando_recorrencia(self):
+        self.receita(descricao="Salário", valor="1.500,00", data=date(2026, 3, 5))
+        edicao = self.client.get("/receitas/1/editar").data.decode()
+        form = self.formulario(edicao, "/receitas/1/editar")
+        self.assertIn("data-recorrencia", form)
+        self.assertNotIn('name="quinzenal"', form)             # quinzena só ao criar
+        resposta = self.client.post("/receitas/1/editar", data={
+            "descricao": "Salário", "valor": "1.500,00", "data": "2026-03-05",
+            "recorrencia": "1", "meses": ["2026-03", "2026-04", "2026-05"]},
+            follow_redirects=True)
+        self.assertIn("Receita atualizada e repetida em mais 2".encode(), resposta.data)
+        receitas = self.receitas_no_banco()
+        self.assertEqual([r["data"] for r in receitas], ["2026-03-05", "2026-04-05", "2026-05-05"])
+        self.assertEqual(len({r["recorrencia_id"] for r in receitas}), 1)
+        # agora é recorrente: o formulário mostra o aviso em vez do checkbox
+        form = self.formulario(self.client.get("/receitas/1/editar").data.decode(),
+                               "/receitas/1/editar")
+        self.assertNotIn("data-recorrencia", form)
+        self.assertIn("já faz parte de uma recorrência", form)
+
+    def test_editar_receita_recorrencia_sem_meses_da_erro(self):
+        self.receita(descricao="Salário", data=date(2026, 3, 5))
+        resposta = self.client.post("/receitas/1/editar", data={
+            "descricao": "Mudou", "valor": "1", "data": "2026-03-05", "recorrencia": "1"},
+            follow_redirects=True)
+        self.assertIn("marque pelo menos um mês".encode(), resposta.data)
+        self.assertEqual(self.receitas_no_banco()[0]["descricao"], "Salário")
 
     # ------------------------------------------------------------------ receitas
     def receita(self, descricao="Salário", valor="1.500,00", data=None, **extras):

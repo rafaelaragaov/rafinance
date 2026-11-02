@@ -7,6 +7,9 @@
   {% set acao = url_for('editar_receita', receita_id=receita.id) %}
   {% set next_url = none %}
   {% set rotulo_botao = 'Salvar' %}
+  {% set modo_edicao = true %}
+  {% set ja_recorrente = receita.recorrencia_id %}
+  {% set com_recorrencia = not receita.recorrencia_id %}
   {% include "_form_receita.html" %}
   <p><a href="{{ url_for('lancamentos', mes=receita.data[:7]) }}">← Cancelar</a></p>
 </section>
