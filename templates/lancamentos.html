@@ -1,6 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Lançamentos{% endblock %}
 
+{# Botão "excluir" de um item. Se ele faz parte de uma recorrência e ainda há meses
+   seguintes, abre a janela com as duas opções; senão, é um excluir comum com confirmação.
+   Variáveis: item, url_um, url_seguintes, confirmacao #}
+{% macro botao_excluir(item, url_um, url_seguintes, confirmacao) %}
+  {% if item.recorrencia_id and item.n_seguintes > 1 %}
+    <button class="acao perigo" type="button" data-excluir-rec
+            data-titulo="{{ item.descricao }} · {{ item.data|data_curta }}"
+            data-url-um="{{ url_um }}"
+            data-url-seguintes="{{ url_seguintes }}"
+            data-qtd="{{ item.n_seguintes }}">excluir</button>
+  {% else %}
+    <form method="post" action="{{ url_um }}" onsubmit="return confirm('{{ confirmacao }}')">
+      <input type="hidden" name="next" value="{{ url_for('lancamentos', mes=mes_atual) }}">
+      <button class="acao perigo" type="submit">excluir</button>
+    </form>
+  {% endif %}
+{% endmacro %}
+
 {% block content %}
 <section class="bloco">
   <div class="bloco-topo">
@@ -23,18 +41,7 @@
           <div class="direita">
             <span class="valor">{{ g.valor_centavos|brl }}</span>
             <a class="acao" href="{{ url_for('editar', gasto_id=g.id) }}">editar</a>
-            {% if g.recorrencia_id %}
-              <form method="post" action="{{ url_for('excluir_proximos', gasto_id=g.id) }}"
-                    onsubmit="return confirm('Excluir este gasto e os dos meses seguintes desta recorrência?')">
-                <input type="hidden" name="next" value="{{ url_for('lancamentos', mes=mes_atual) }}">
-                <button class="acao perigo" type="submit" title="Exclui este e os meses seguintes">excluir próximos</button>
-              </form>
-            {% endif %}
-            <form method="post" action="{{ url_for('excluir', gasto_id=g.id) }}"
-                  onsubmit="return confirm('Excluir este gasto?')">
-              <input type="hidden" name="next" value="{{ url_for('lancamentos', mes=mes_atual) }}">
-              <button class="acao perigo" type="submit">excluir</button>
-            </form>
+            {{ botao_excluir(g, url_for('excluir', gasto_id=g.id), url_for('excluir_proximos', gasto_id=g.id), 'Excluir este gasto?') }}
           </div>
         </li>
       {% endfor %}
@@ -61,18 +68,7 @@
           <div class="direita">
             <span class="valor positivo">+ {{ r.valor_centavos|brl }}</span>
             <a class="acao" href="{{ url_for('editar_receita', receita_id=r.id) }}">editar</a>
-            {% if r.recorrencia_id %}
-              <form method="post" action="{{ url_for('excluir_proximos_receita', receita_id=r.id) }}"
-                    onsubmit="return confirm('Excluir esta receita e as dos meses seguintes desta recorrência?')">
-                <input type="hidden" name="next" value="{{ url_for('lancamentos', mes=mes_atual) }}">
-                <button class="acao perigo" type="submit" title="Exclui esta e os meses seguintes">excluir próximos</button>
-              </form>
-            {% endif %}
-            <form method="post" action="{{ url_for('excluir_receita', receita_id=r.id) }}"
-                  onsubmit="return confirm('Excluir esta receita?')">
-              <input type="hidden" name="next" value="{{ url_for('lancamentos', mes=mes_atual) }}">
-              <button class="acao perigo" type="submit">excluir</button>
-            </form>
+            {{ botao_excluir(r, url_for('excluir_receita', receita_id=r.id), url_for('excluir_proximos_receita', receita_id=r.id), 'Excluir esta receita?') }}
           </div>
         </li>
       {% endfor %}
@@ -91,4 +87,17 @@
   {% set com_recorrencia = true %}
   {% include "_form_gasto.html" %}
 </section>
+
+<dialog class="dialogo dialogo-pequeno" id="dialogo-excluir" aria-labelledby="titulo-excluir">
+  <div class="dialogo-corpo">
+    <h2 id="titulo-excluir">Excluir lançamento recorrente</h2>
+    <p class="nota" data-excluir-texto></p>
+    <form method="post" class="dialogo-acoes">
+      <input type="hidden" name="next" value="{{ url_for('lancamentos', mes=mes_atual) }}">
+      <button type="submit" class="botao perigo" data-excluir-um>Só este</button>
+      <button type="submit" class="botao perigo forte" data-excluir-seguintes>Este e os seguintes</button>
+      <button type="button" class="botao neutro" data-fechar>Cancelar</button>
+    </form>
+  </div>
+</dialog>
 {% endblock %}

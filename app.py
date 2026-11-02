@@ -5,6 +5,7 @@ import sqlite3
 import uuid
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from urllib.parse import urlsplit
 
 from flask import (
     Flask,
@@ -181,6 +182,22 @@ def destino_seguro(valor, padrao):
     return padrao
 
 
+@app.before_request
+def bloquear_envio_de_outro_site():
+    """Recusa POST que o navegador marca como vindo de outro site.
+
+    Sem isso, qualquer página aberta em outra aba poderia enviar um formulário
+    para este endereço local (ex.: o "Limpar tudo") sem você perceber.
+    """
+    if request.method != "POST":
+        return
+    origem = request.headers.get("Origin")
+    if origem and origem != "null" and urlsplit(origem).netloc != request.host:
+        abort(403)
+    if origem == "null" or request.headers.get("Sec-Fetch-Site") == "cross-site":
+        abort(403)
+
+
 @app.context_processor
 def globais():
     """Disponível em todos os templates (o diálogo do + vive no base.html)."""
@@ -196,6 +213,25 @@ def total_periodo(db, inicio, fim, tabela="gastos"):
         (inicio.isoformat(), fim.isoformat()),
     ).fetchone()
     return row["total"]
+
+
+def anexar_seguintes(db, tabela, linhas):
+    """Linhas como dicts + `n_seguintes`: quantos lançamentos do mesmo grupo de
+    recorrência têm data igual ou posterior à do item (contando o próprio).
+    É o número de itens que "excluir este e os seguintes" apagaria."""
+    assert tabela in ("gastos", "receitas")
+    itens = [dict(linha) for linha in linhas]
+    datas = {}
+    for grupo in {i["recorrencia_id"] for i in itens if i["recorrencia_id"]}:
+        datas[grupo] = [
+            r["data"]
+            for r in db.execute(
+                f"SELECT data FROM {tabela} WHERE recorrencia_id = ?", (grupo,)
+            )
+        ]
+    for i in itens:
+        i["n_seguintes"] = sum(1 for d in datas.get(i["recorrencia_id"], []) if d >= i["data"])
+    return itens
 
 
 def ler_recorrencia_na_edicao(data_nova):
@@ -315,6 +351,8 @@ def resumo():
     a_receber = receita_prevista - receita_recebida
     saldo_atual = receita_recebida - total_mes
     saldo_previsto = receita_prevista - (total_mes + total_a_vencer)
+    qtd_gastos = db.execute("SELECT COUNT(*) FROM gastos").fetchone()[0]
+    qtd_receitas = db.execute("SELECT COUNT(*) FROM receitas").fetchone()[0]
 
     return render_template(
         "resumo.html",
@@ -336,6 +374,8 @@ def resumo():
         tem_receitas=receita_prevista > 0,
         saldo_atual=saldo_atual,
         saldo_previsto=saldo_previsto,
+        qtd_gastos=qtd_gastos,
+        qtd_receitas=qtd_receitas,
         categorias_form=CATEGORIAS,
     )
 
@@ -388,19 +428,19 @@ def lancamentos():
     fim = ultimo_dia_do_mes(inicio)
 
     db = get_db()
-    gastos = db.execute(
+    gastos = anexar_seguintes(db, "gastos", db.execute(
         "SELECT * FROM gastos WHERE data BETWEEN ? AND ? ORDER BY data DESC, id DESC",
         (inicio.isoformat(), fim.isoformat()),
-    ).fetchall()
+    ).fetchall())
     total = sum(g_["valor_centavos"] for g_ in gastos)
     a_vencer_total = sum(
         g_["valor_centavos"] for g_ in gastos if g_["data"] > hoje.isoformat()
     )
 
-    receitas = db.execute(
+    receitas = anexar_seguintes(db, "receitas", db.execute(
         "SELECT * FROM receitas WHERE data BETWEEN ? AND ? ORDER BY data DESC, id DESC",
         (inicio.isoformat(), fim.isoformat()),
-    ).fetchall()
+    ).fetchall())
     receitas_total = sum(r_["valor_centavos"] for r_ in receitas)
 
     anterior = (inicio - timedelta(days=1)).replace(day=1)
@@ -625,6 +665,19 @@ def excluir_proximos_receita(receita_id):
         db.commit()
         flash(f"{cur.rowcount} receita(s) da recorrência excluída(s).", "ok")
     return redirect(destino_seguro(request.form.get("next"), url_for("lancamentos")))
+
+
+@app.route("/limpar-tudo", methods=["POST"])
+def limpar_tudo():
+    """Apaga todos os gastos e todas as receitas. Não há como desfazer."""
+    db = get_db()
+    gastos = db.execute("SELECT COUNT(*) FROM gastos").fetchone()[0]
+    receitas = db.execute("SELECT COUNT(*) FROM receitas").fetchone()[0]
+    db.execute("DELETE FROM gastos")
+    db.execute("DELETE FROM receitas")
+    db.commit()
+    flash(f"Tudo limpo: {gastos} gasto(s) e {receitas} receita(s) apagados.", "ok")
+    return redirect(url_for("resumo"))
 
 
 init_db()

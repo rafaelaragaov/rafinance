@@ -279,6 +279,36 @@ input:focus, select:focus { outline: 2px solid var(--acento); outline-offset: -1
 
 .nota { margin: 0; color: var(--suave); font-size: .85rem; }
 
+/* Botão "Limpar tudo" (topo do Resumo) */
+.barra-pagina { display: flex; justify-content: flex-end; margin-top: 4px; }
+.barra-pagina form { margin: 0; }
+.limpar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--negativo);
+  border-radius: 999px;
+  background: none;
+  color: var(--negativo);
+  font-size: .85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.limpar svg { width: 15px; height: 15px; }
+.limpar:hover:not(:disabled) { background: var(--negativo-fundo); }
+.limpar:focus-visible { outline: 2px solid var(--negativo); outline-offset: 2px; }
+.limpar:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Janela "excluir este / este e os seguintes" */
+.dialogo-pequeno { width: min(400px, calc(100vw - 24px)); }
+.dialogo-pequeno h2 { margin: 0 0 6px; font-size: 1.05rem; }
+.dialogo-pequeno .nota { margin-bottom: 14px; }
+.dialogo-acoes { display: flex; flex-direction: column; gap: 8px; }
+.botao.perigo { background: var(--negativo-fundo); color: var(--negativo); }
+.botao.perigo.forte { background: var(--negativo); color: var(--bg); }
+.botao.neutro { background: var(--bg); color: var(--texto); border: 1px solid var(--borda); }
+
 .selo {
   display: inline-block;
   padding: 0 7px;

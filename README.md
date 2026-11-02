@@ -25,6 +25,16 @@ cada mês escolhido (ex.: dia 5 e dia 20, de novembro a abril).
 O **Saldo do mês** no Resumo mostra *recebido − gasto* até hoje e, abaixo, o previsto até o fim do
 mês (a receber, a pagar e saldo previsto).
 
+### Excluir e limpar
+
+- Em **Lançamentos**, **excluir** um item que faz parte de uma recorrência abre uma janela com
+  **Só este** e **Este e os N seguintes** (mantém os meses anteriores). Itens avulsos, ou o último
+  da recorrência, têm o excluir comum com confirmação.
+- No topo do **Resumo**, o botão **Limpar tudo** apaga todos os gastos e receitas, depois de uma
+  confirmação que mostra quantos itens serão excluídos. Não há como desfazer.
+- Os formulários só aceitam envio vindo do próprio site (checagem de `Origin`), para que uma
+  página aberta em outra aba não consiga acionar, por exemplo, o "Limpar tudo".
+
 ### Aparência
 
 O ícone **◐** abre um painel minimalista com:

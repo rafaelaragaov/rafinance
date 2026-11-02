@@ -65,6 +65,26 @@ if (dialogo && typeof dialogo.showModal === "function") {
   dialogo.addEventListener("click", (e) => { if (e.target === dialogo) dialogo.close(); });
 }
 
+/* ------------------------------------- excluir: "só este" ou "este e os seguintes" */
+const dialogoExcluir = document.getElementById("dialogo-excluir");
+if (dialogoExcluir) {
+  const texto = dialogoExcluir.querySelector("[data-excluir-texto]");
+  const soEste = dialogoExcluir.querySelector("[data-excluir-um]");
+  const seguintes = dialogoExcluir.querySelector("[data-excluir-seguintes]");
+
+  document.querySelectorAll("[data-excluir-rec]").forEach((botao) =>
+    botao.addEventListener("click", () => {
+      const depois = Number(botao.dataset.qtd) - 1;   // qtd inclui o próprio item
+      texto.textContent = `"${botao.dataset.titulo}" faz parte de uma recorrência. O que você quer excluir?`;
+      soEste.formAction = botao.dataset.urlUm;
+      seguintes.formAction = botao.dataset.urlSeguintes;
+      seguintes.textContent = depois === 1 ? "Este e o seguinte" : `Este e os ${depois} seguintes`;
+      dialogoExcluir.showModal();
+    }));
+  dialogoExcluir.querySelector("[data-fechar]").addEventListener("click", () => dialogoExcluir.close());
+  dialogoExcluir.addEventListener("click", (e) => { if (e.target === dialogoExcluir) dialogoExcluir.close(); });
+}
+
 /* --------------------------------------------------------------- quinzena */
 document.querySelectorAll("[data-quinzena]").forEach((bloco) => {
   const form = bloco.closest("form");

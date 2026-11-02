@@ -449,6 +449,122 @@ class RaFinanceTests(unittest.TestCase):
         self.assertEqual(re.findall(r'data-modo="(\w+)"', pagina), ["light", "dark", "auto"])
         self.assertEqual(re.findall(r'data-cor="(\w+)"', pagina), ["verde", "azul", "roxo"])
 
+    # ------------------------------------------------------------------ limpar tudo
+    def test_limpar_tudo_apaga_gastos_e_receitas(self):
+        self.adicionar("A", "10,00", date.today())
+        self.adicionar("B", "20,00", date.today())
+        self.receita(descricao="Salário")
+        resposta = self.client.post("/limpar-tudo", follow_redirects=True)
+        self.assertIn("2 gasto(s) e 1 receita(s) apagados".encode(), resposta.data)
+        self.assertEqual(self.gastos_no_banco(), [])
+        self.assertEqual(self.receitas_no_banco(), [])
+        # depois de limpar, o app continua funcionando e aceita novos lançamentos
+        self.adicionar("Novo", "5,00", date.today())
+        self.assertEqual(len(self.gastos_no_banco()), 1)
+
+    def test_botao_limpar_tudo_aparece_no_resumo_com_as_quantidades(self):
+        self.adicionar("A", "10,00", date.today())
+        self.receita()
+        self.receita(descricao="Outra")
+        pagina = self.client.get("/").data.decode()
+        form = self.formulario(pagina, "/limpar-tudo")
+        self.assertIn("Limpar tudo", form)
+        self.assertIn("1 gasto(s) e 2 receita(s)", form)
+        self.assertNotIn("disabled", form)
+
+    def test_botao_limpar_tudo_fica_desativado_sem_lancamentos(self):
+        form = self.formulario(self.client.get("/").data.decode(), "/limpar-tudo")
+        self.assertIn("disabled", form)
+
+    def test_limpar_tudo_nao_aparece_fora_do_resumo(self):
+        self.assertNotIn("/limpar-tudo", self.client.get("/lancamentos").data.decode())
+
+    # ------------------------------------------------- excluir "este e os seguintes"
+    def botoes_excluir_rec(self, pagina):
+        return re.findall(r"<button[^>]*data-excluir-rec[^>]*>", pagina)
+
+    def test_excluir_de_item_recorrente_abre_a_janela_com_a_quantidade(self):
+        self.recorrente(date(2026, 3, 10), ["2026-03", "2026-04", "2026-05"])
+        pagina = self.client.get("/lancamentos?mes=2026-03").data.decode()
+        [botao] = self.botoes_excluir_rec(pagina)
+        self.assertIn('data-qtd="3"', botao)                      # ele + 2 seguintes
+        self.assertIn('data-url-um="/gastos/1/excluir"', botao)
+        self.assertIn('data-url-seguintes="/gastos/1/excluir-proximos"', botao)
+        self.assertIn('id="dialogo-excluir"', pagina)
+        # o botão antigo e separado "excluir próximos" não existe mais
+        self.assertNotIn("excluir próximos", pagina)
+
+    def test_ultimo_item_da_recorrencia_usa_excluir_simples(self):
+        self.recorrente(date(2026, 3, 10), ["2026-03", "2026-04"])
+        pagina = self.client.get("/lancamentos?mes=2026-04").data.decode()
+        self.assertEqual(self.botoes_excluir_rec(pagina), [])     # nada depois dele
+        self.assertIn('action="/gastos/2/excluir"', pagina)
+
+    def test_item_avulso_usa_excluir_simples(self):
+        self.adicionar("Avulso", "10,00", date(2026, 3, 10))
+        pagina = self.client.get("/lancamentos?mes=2026-03").data.decode()
+        self.assertEqual(self.botoes_excluir_rec(pagina), [])
+        self.assertIn('action="/gastos/1/excluir"', pagina)
+
+    def test_quantidade_conta_so_os_itens_a_partir_da_data_do_item(self):
+        self.recorrente(date(2026, 3, 10), ["2026-03", "2026-04", "2026-05", "2026-06"])
+        quantidades = {
+            mes: re.search(r'data-qtd="(\d+)"', self.client.get(f"/lancamentos?mes={mes}").data.decode())
+            for mes in ("2026-03", "2026-04", "2026-05", "2026-06")
+        }
+        self.assertEqual({m: (q.group(1) if q else None) for m, q in quantidades.items()},
+                         {"2026-03": "4", "2026-04": "3", "2026-05": "2", "2026-06": None})
+
+    def test_excluir_seguintes_a_partir_do_meio_mantem_os_anteriores(self):
+        self.recorrente(date(2026, 3, 10), ["2026-03", "2026-04", "2026-05", "2026-06"])
+        segundo = self.gastos_no_banco()[1]
+        resposta = self.client.post(f"/gastos/{segundo['id']}/excluir-proximos",
+                                    data={"next": "/lancamentos?mes=2026-04"}, follow_redirects=True)
+        self.assertIn("3 gasto(s) da recorrência excluído(s)".encode(), resposta.data)  # abr, mai, jun
+        self.assertEqual([g["data"] for g in self.gastos_no_banco()], ["2026-03-10"])
+
+    def test_so_este_apaga_apenas_um(self):
+        self.recorrente(date(2026, 3, 10), ["2026-03", "2026-04", "2026-05"])
+        self.client.post("/gastos/2/excluir")
+        self.assertEqual([g["data"] for g in self.gastos_no_banco()], ["2026-03-10", "2026-05-10"])
+
+    def test_receita_recorrente_tambem_tem_a_janela(self):
+        self.receita(descricao="Salário", data=date(2026, 3, 5), recorrencia="1",
+                     meses=["2026-03", "2026-04", "2026-05"])
+        pagina = self.client.get("/lancamentos?mes=2026-03").data.decode()
+        [botao] = self.botoes_excluir_rec(pagina)
+        self.assertIn('data-qtd="3"', botao)
+        self.assertIn('data-url-seguintes="/receitas/1/excluir-proximos"', botao)
+
+    def test_receita_quinzenal_recorrente_conta_os_dois_recebimentos_do_mes(self):
+        # 2 recebimentos por mês, 2 meses: apagar "este e os seguintes" do 1º dia 5
+        # leva junto o dia 20 do mesmo mês e os dois do mês seguinte (4 no total)
+        self.receita(data=date(2026, 3, 5), quinzenal="1", dia2="20", recorrencia="1",
+                     meses=["2026-03", "2026-04"])
+        pagina = self.client.get("/lancamentos?mes=2026-03").data.decode()
+        quantidades = sorted(re.findall(r'data-qtd="(\d+)"', pagina))
+        self.assertEqual(quantidades, ["3", "4"])                 # dia 20 -> 3, dia 5 -> 4
+        self.client.post("/receitas/1/excluir-proximos")
+        self.assertEqual(self.receitas_no_banco(), [])
+
+    # ------------------------------------------- proteção contra envio de outro site
+    def test_post_vindo_de_outro_site_e_recusado(self):
+        self.adicionar("A", "10,00", date.today())
+        for cabecalhos in ({"Origin": "https://exemplo.com"},
+                           {"Origin": "http://localhost:9999"},      # outra porta = outra origem
+                           {"Origin": "null"},
+                           {"Sec-Fetch-Site": "cross-site"}):
+            resposta = self.client.post("/limpar-tudo", headers=cabecalhos)
+            self.assertEqual(resposta.status_code, 403, cabecalhos)
+        self.assertEqual(len(self.gastos_no_banco()), 1)           # nada foi apagado
+
+    def test_post_do_proprio_site_e_aceito(self):
+        self.adicionar("A", "10,00", date.today())
+        resposta = self.client.post("/limpar-tudo", headers={
+            "Origin": "http://localhost", "Sec-Fetch-Site": "same-origin"})
+        self.assertEqual(resposta.status_code, 302)
+        self.assertEqual(self.gastos_no_banco(), [])
+
     # ------------------------------------------------------------------ segurança
     def test_next_externo_e_ignorado(self):
         for destino in ("https://exemplo.com", "//exemplo.com", "/\\exemplo.com"):
