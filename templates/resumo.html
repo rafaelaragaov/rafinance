@@ -61,6 +61,26 @@
   </section>
 </div>
 
+{% if a_vencer %}
+<section class="bloco">
+  <div class="bloco-topo">
+    <h2>A vencer neste mês</h2>
+    <strong class="valor">{{ total_a_vencer|brl }}</strong>
+  </div>
+  <ul class="lista">
+    {% for g in a_vencer %}
+      <li>
+        <div>
+          <strong>{{ g.descricao }}</strong>
+          <small>{{ g.data|data_curta }} · {{ g.categoria }}{% if g.recorrencia_id %} · <span class="selo">recorrente</span>{% endif %}</small>
+        </div>
+        <span class="valor">{{ g.valor_centavos|brl }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section class="bloco">
   <div class="bloco-topo">
     <h2>Últimos lançamentos</h2>
@@ -72,7 +92,7 @@
         <li>
           <div>
             <strong>{{ g.descricao }}</strong>
-            <small>{{ g.data|data_curta }} · {{ g.categoria }}</small>
+            <small>{{ g.data|data_curta }} · {{ g.categoria }}{% if g.recorrencia_id %} · <span class="selo">recorrente</span>{% endif %}</small>
           </div>
           <span class="valor">{{ g.valor_centavos|brl }}</span>
         </li>

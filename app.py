@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+import uuid
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
@@ -34,7 +35,13 @@ MESES = [
     "janeiro", "fevereiro", "março", "abril", "maio", "junho",
     "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
 ]
+MESES_ABREV = [
+    "jan", "fev", "mar", "abr", "mai", "jun",
+    "jul", "ago", "set", "out", "nov", "dez",
+]
 DIAS_SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
+
+MAX_MESES_RECORRENCIA = 24
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS gastos (
@@ -43,6 +50,7 @@ CREATE TABLE IF NOT EXISTS gastos (
     valor_centavos INTEGER NOT NULL CHECK (valor_centavos > 0),
     categoria      TEXT    NOT NULL,
     data           TEXT    NOT NULL,
+    recorrencia_id TEXT,
     criado_em      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_gastos_data ON gastos (data);
@@ -75,6 +83,13 @@ def close_db(_exc):
 def init_db():
     db = sqlite3.connect(app.config["DATABASE"])
     db.executescript(SCHEMA)
+    # Migração: bancos criados na v0.1 não têm a coluna recorrencia_id.
+    colunas = [linha[1] for linha in db.execute("PRAGMA table_info(gastos)")]
+    if "recorrencia_id" not in colunas:
+        db.execute("ALTER TABLE gastos ADD COLUMN recorrencia_id TEXT")
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gastos_recorrencia ON gastos (recorrencia_id)"
+    )
     db.commit()
     db.close()
 
@@ -115,6 +130,38 @@ def data_curta(iso):
 def ultimo_dia_do_mes(d):
     primeiro_prox = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
     return primeiro_prox - timedelta(days=1)
+
+
+def vencimento(ano, mes, dia):
+    """Data do gasto em ano/mês; em meses mais curtos usa o último dia (31 -> 28)."""
+    ultimo = ultimo_dia_do_mes(date(ano, mes, 1)).day
+    return date(ano, mes, min(dia, ultimo))
+
+
+def meses_a_partir(data, quantidade=12):
+    """Os próximos `quantidade` meses (a partir do mês de `data`) para o seletor."""
+    opcoes = []
+    ano, mes = data.year, data.month
+    for _ in range(quantidade):
+        opcoes.append(
+            {"valor": f"{ano:04d}-{mes:02d}", "rotulo": f"{MESES_ABREV[mes - 1]}/{ano % 100:02d}"}
+        )
+        ano, mes = (ano + 1, 1) if mes == 12 else (ano, mes + 1)
+    return opcoes
+
+
+def ler_meses(valores):
+    """Converte ['2026-11', ...] em [(2026, 11), ...] ordenado, sem repetidos/inválidos."""
+    meses = set()
+    for texto in valores:
+        try:
+            ano, mes = (int(x) for x in texto.split("-"))
+            date(ano, mes, 1)
+        except ValueError:
+            continue
+        if 2000 <= ano <= 2100:
+            meses.add((ano, mes))
+    return sorted(meses)[:MAX_MESES_RECORRENCIA]
 
 
 def total_periodo(db, inicio, fim):
@@ -158,9 +205,10 @@ def resumo():
     inicio_mes = hoje.replace(day=1)
     fim_mes = ultimo_dia_do_mes(hoje)
 
+    # Totais = o que já foi gasto (até hoje). O que ainda vai vencer aparece em "A vencer".
     total_hoje = total_periodo(db, hoje, hoje)
-    total_semana = total_periodo(db, inicio_semana, fim_semana)
-    total_mes = total_periodo(db, inicio_mes, fim_mes)
+    total_semana = total_periodo(db, inicio_semana, hoje)
+    total_mes = total_periodo(db, inicio_mes, hoje)
     media_diaria = total_mes // hoje.day
 
     # Últimos 7 dias (barras)
@@ -192,13 +240,20 @@ def resumo():
         for r in db.execute(
             "SELECT categoria, SUM(valor_centavos) AS total FROM gastos "
             "WHERE data BETWEEN ? AND ? GROUP BY categoria ORDER BY total DESC",
-            (inicio_mes.isoformat(), fim_mes.isoformat()),
+            (inicio_mes.isoformat(), hoje.isoformat()),
         )
     ]
 
     recentes = db.execute(
-        "SELECT * FROM gastos ORDER BY data DESC, id DESC LIMIT 5"
+        "SELECT * FROM gastos WHERE data <= ? ORDER BY data DESC, id DESC LIMIT 5",
+        (hoje.isoformat(),),
     ).fetchall()
+
+    a_vencer = db.execute(
+        "SELECT * FROM gastos WHERE data > ? AND data <= ? ORDER BY data, id",
+        (hoje.isoformat(), fim_mes.isoformat()),
+    ).fetchall()
+    total_a_vencer = sum(g_["valor_centavos"] for g_ in a_vencer)
 
     return render_template(
         "resumo.html",
@@ -213,25 +268,48 @@ def resumo():
         grafico=grafico,
         categorias=categorias,
         recentes=recentes,
+        a_vencer=a_vencer,
+        total_a_vencer=total_a_vencer,
         categorias_form=CATEGORIAS,
+        meses_opcoes=meses_a_partir(hoje),
     )
 
 
 @app.route("/gastos", methods=["POST"])
 def adicionar():
+    destino = request.form.get("next") or url_for("resumo")
     dados, erro = ler_formulario()
     if erro:
         flash(erro, "erro")
+        return redirect(destino)
+
+    descricao, valor, categoria, data_iso = dados
+    db = get_db()
+
+    if request.form.get("recorrencia"):
+        meses = ler_meses(request.form.getlist("meses"))
+        if not meses:
+            flash("Recorrência: marque pelo menos um mês.", "erro")
+            return redirect(destino)
+        dia = date.fromisoformat(data_iso).day
+        grupo = uuid.uuid4().hex
+        for ano, mes in meses:
+            db.execute(
+                "INSERT INTO gastos (descricao, valor_centavos, categoria, data, recorrencia_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (descricao, valor, categoria, vencimento(ano, mes, dia).isoformat(), grupo),
+            )
+        db.commit()
+        flash(f"Gasto recorrente registrado em {len(meses)} mês(es).", "ok")
     else:
-        db = get_db()
         db.execute(
             "INSERT INTO gastos (descricao, valor_centavos, categoria, data) "
             "VALUES (?, ?, ?, ?)",
-            dados,
+            (descricao, valor, categoria, data_iso),
         )
         db.commit()
         flash("Gasto registrado.", "ok")
-    return redirect(request.form.get("next") or url_for("resumo"))
+    return redirect(destino)
 
 
 @app.route("/lancamentos")
@@ -250,6 +328,9 @@ def lancamentos():
         (inicio.isoformat(), fim.isoformat()),
     ).fetchall()
     total = sum(g_["valor_centavos"] for g_ in gastos)
+    a_vencer_total = sum(
+        g_["valor_centavos"] for g_ in gastos if g_["data"] > hoje.isoformat()
+    )
 
     anterior = (inicio - timedelta(days=1)).replace(day=1)
     proximo = fim + timedelta(days=1)
@@ -264,6 +345,9 @@ def lancamentos():
         mes_atual=inicio.strftime("%Y-%m"),
         categorias_form=CATEGORIAS,
         hoje=hoje,
+        hoje_iso=hoje.isoformat(),
+        a_vencer_total=a_vencer_total,
+        meses_opcoes=meses_a_partir(hoje),
     )
 
 
@@ -297,6 +381,23 @@ def excluir(gasto_id):
     db.execute("DELETE FROM gastos WHERE id = ?", (gasto_id,))
     db.commit()
     flash("Gasto excluído.", "ok")
+    return redirect(request.form.get("next") or url_for("lancamentos"))
+
+
+@app.route("/gastos/<int:gasto_id>/excluir-proximos", methods=["POST"])
+def excluir_proximos(gasto_id):
+    """Exclui este gasto recorrente e os dos meses seguintes (os anteriores ficam)."""
+    db = get_db()
+    gasto = db.execute("SELECT * FROM gastos WHERE id = ?", (gasto_id,)).fetchone()
+    if gasto is None:
+        abort(404)
+    if gasto["recorrencia_id"]:
+        cur = db.execute(
+            "DELETE FROM gastos WHERE recorrencia_id = ? AND data >= ?",
+            (gasto["recorrencia_id"], gasto["data"]),
+        )
+        db.commit()
+        flash(f"{cur.rowcount} gasto(s) da recorrência excluído(s).", "ok")
     return redirect(request.form.get("next") or url_for("lancamentos"))
 
 

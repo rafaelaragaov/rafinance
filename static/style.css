@@ -146,6 +146,45 @@ input:focus, select:focus { outline: 2px solid var(--verde); outline-offset: -1p
 @media (prefers-color-scheme: dark) { .botao { color: #0d1511; } }
 .botao:hover { filter: brightness(1.08); }
 
+/* Recorrência */
+.form-gasto .botao { grid-column: 5; grid-row: 1; }
+.recorrencia { grid-column: 1 / -1; grid-row: 2; }
+.check { display: flex; align-items: baseline; gap: 8px; font-size: .95rem; color: var(--texto); cursor: pointer; }
+.check input { width: auto; height: auto; accent-color: var(--verde); }
+.check small { color: var(--suave); font-size: .8rem; }
+.meses { margin-top: 10px; padding: 12px; border: 1px dashed var(--borda); border-radius: 10px; }
+.meses[hidden] { display: none; }
+.meses-topo { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: .85rem; color: var(--suave); }
+.meses > small { display: block; margin-top: 8px; color: var(--suave); font-size: .78rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { cursor: pointer; }
+.chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+.chip span {
+  display: inline-block;
+  padding: 5px 11px;
+  border: 1px solid var(--borda);
+  border-radius: 999px;
+  font-size: .85rem;
+  color: var(--suave);
+  background: var(--bg);
+  user-select: none;
+}
+.chip input:checked + span { background: var(--verde-claro); border-color: var(--verde); color: var(--verde); font-weight: 600; }
+.chip input:focus-visible + span { outline: 2px solid var(--verde); outline-offset: 2px; }
+
+.selo {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--verde-claro);
+  color: var(--verde);
+  font-size: .72rem;
+  font-weight: 600;
+}
+.selo.vencer { background: #fff1d6; color: #8a5a00; }
+@media (prefers-color-scheme: dark) { .selo.vencer { background: #3a2f17; color: #f0c36a; } }
+.total-mes small { font-size: .8rem; }
+
 /* Barras dos últimos 7 dias */
 .barras { display: flex; gap: 8px; align-items: flex-end; height: 140px; }
 .barra-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; }
@@ -199,5 +238,6 @@ input:focus, select:focus { outline: 2px solid var(--verde); outline-offset: -1p
   .duas-colunas { grid-template-columns: 1fr; }
   .form-gasto { grid-template-columns: 1fr 1fr; }
   .form-gasto .grande { grid-column: 1 / -1; }
-  .form-gasto .botao { grid-column: 1 / -1; }
+  .form-gasto .botao { grid-column: 1 / -1; grid-row: auto; order: 99; }
+  .recorrencia { grid-row: auto; }
 }
