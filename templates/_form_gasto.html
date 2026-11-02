@@ -1,0 +1,34 @@
+{# Formulário reutilizável. Variáveis: acao, gasto (opcional), next_url (opcional), rotulo_botao #}
+<form method="post" action="{{ acao }}" class="form-gasto">
+  {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+
+  <label class="campo grande">
+    Descrição
+    <input type="text" name="descricao" required maxlength="80"
+           placeholder="Ex.: Almoço, Uber, Mercado"
+           value="{{ gasto.descricao if gasto else '' }}">
+  </label>
+
+  <label class="campo">
+    Valor (R$)
+    <input type="text" name="valor" inputmode="decimal" required placeholder="0,00"
+           value="{{ ('%d,%02d' % (gasto.valor_centavos // 100, gasto.valor_centavos % 100)) if gasto else '' }}">
+  </label>
+
+  <label class="campo">
+    Categoria
+    <select name="categoria">
+      {% for c in categorias_form %}
+        <option value="{{ c }}" {{ 'selected' if gasto and gasto.categoria == c }}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="campo">
+    Data
+    <input type="date" name="data" required
+           value="{{ gasto.data if gasto else hoje.isoformat() }}">
+  </label>
+
+  <button type="submit" class="botao">{{ rotulo_botao }}</button>
+</form>

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Resumo{% endblock %}
+
+{% block content %}
+<section class="cartoes">
+  <div class="cartao">
+    <span class="rotulo">Hoje</span>
+    <strong>{{ total_hoje|brl }}</strong>
+    <small>{{ hoje.strftime('%d/%m/%Y') }}</small>
+  </div>
+  <div class="cartao">
+    <span class="rotulo">Esta semana</span>
+    <strong>{{ total_semana|brl }}</strong>
+    <small>{{ semana_label }}</small>
+  </div>
+  <div class="cartao destaque">
+    <span class="rotulo">Este mês</span>
+    <strong>{{ total_mes|brl }}</strong>
+    <small>{{ mes_label }} · média {{ media_diaria|brl }}/dia</small>
+  </div>
+</section>
+
+<section class="bloco">
+  <h2>Novo gasto</h2>
+  {% set acao = url_for('adicionar') %}
+  {% set gasto = none %}
+  {% set next_url = none %}
+  {% set rotulo_botao = 'Adicionar' %}
+  {% include "_form_gasto.html" %}
+</section>
+
+<div class="duas-colunas">
+  <section class="bloco">
+    <h2>Últimos 7 dias</h2>
+    <div class="barras">
+      {% for d in grafico %}
+        <div class="barra-item {{ 'hoje' if d.hoje }}" title="{{ d.total|brl }}">
+          <div class="barra-trilho">
+            <div class="barra" style="height: {{ d.pct }}%"></div>
+          </div>
+          <span>{{ d.rotulo }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="bloco">
+    <h2>Por categoria (mês)</h2>
+    {% if categorias %}
+      <ul class="categorias">
+        {% for c in categorias %}
+          <li>
+            <div class="linha"><span>{{ c.nome }}</span><span>{{ c.total|brl }}</span></div>
+            <div class="trilho"><div class="preenchido" style="width: {{ c.pct }}%"></div></div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="vazio">Sem gastos neste mês ainda.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="bloco">
+  <div class="bloco-topo">
+    <h2>Últimos lançamentos</h2>
+    <a href="{{ url_for('lancamentos') }}">Ver todos →</a>
+  </div>
+  {% if recentes %}
+    <ul class="lista">
+      {% for g in recentes %}
+        <li>
+          <div>
+            <strong>{{ g.descricao }}</strong>
+            <small>{{ g.data|data_curta }} · {{ g.categoria }}</small>
+          </div>
+          <span class="valor">{{ g.valor_centavos|brl }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="vazio">Nenhum gasto registrado. Adicione o primeiro acima.</p>
+  {% endif %}
+</section>
+{% endblock %}

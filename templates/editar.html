@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Editar gasto{% endblock %}
+
+{% block content %}
+<section class="bloco">
+  <h2>Editar gasto</h2>
+  {% set acao = url_for('editar', gasto_id=gasto.id) %}
+  {% set next_url = none %}
+  {% set rotulo_botao = 'Salvar' %}
+  {% include "_form_gasto.html" %}
+  <p><a href="{{ url_for('lancamentos', mes=gasto.data[:7]) }}">← Cancelar</a></p>
+</section>
+{% endblock %}

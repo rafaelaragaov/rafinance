@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %} · RaFinance</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topo">
+    <a class="logo" href="{{ url_for('resumo') }}">Ra<span>Finance</span></a>
+    <nav>
+      <a href="{{ url_for('resumo') }}" class="{{ 'ativo' if request.endpoint == 'resumo' }}">Resumo</a>
+      <a href="{{ url_for('lancamentos') }}" class="{{ 'ativo' if request.endpoint in ('lancamentos', 'editar') }}">Lançamentos</a>
+    </nav>
+  </header>
+
+  <main>
+    {% with mensagens = get_flashed_messages(with_categories=true) %}
+      {% for categoria, texto in mensagens %}
+        <div class="aviso {{ categoria }}">{{ texto }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

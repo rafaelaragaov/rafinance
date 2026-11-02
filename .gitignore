@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Banco de dados local (contém seus gastos pessoais)
+*.db
+*.sqlite3
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
