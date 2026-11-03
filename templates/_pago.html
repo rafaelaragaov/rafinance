@@ -1,0 +1,10 @@
+{# Checkbox "pago" de um gasto. Cada clique envia o formulário (app.js) e volta para `next_url`. #}
+{% macro caixa_pago(g, next_url) %}
+<form method="post" action="{{ url_for('marcar_pago', gasto_id=g.id) }}" class="form-pago" data-auto-envio>
+  <input type="hidden" name="next" value="{{ next_url }}">
+  <input type="hidden" name="pago" value="0">
+  <input type="checkbox" class="caixa" name="pago" value="1" {{ 'checked' if g.pago }}
+         aria-label="{{ 'Desmarcar' if g.pago else 'Marcar' }} “{{ g.descricao }}” como pago">
+  <noscript><button type="submit" class="acao">salvar</button></noscript>
+</form>
+{% endmacro %}

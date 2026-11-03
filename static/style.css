@@ -250,7 +250,6 @@ input:focus, select:focus { outline: 2px solid var(--acento); outline-offset: -1
 }
 .botao:hover { filter: brightness(1.08); }
 .form-gasto .botao { grid-column: 5; grid-row: 1; }
-.form-gasto .recorrencia { grid-row: 2; }
 
 /* Recorrência e quinzena */
 .check { display: flex; align-items: baseline; gap: 8px; font-size: .95rem; color: var(--texto); cursor: pointer; }
@@ -278,6 +277,50 @@ input:focus, select:focus { outline: 2px solid var(--acento); outline-offset: -1
 .chip input:focus-visible + span { outline: 2px solid var(--acento); outline-offset: 2px; }
 
 .nota { margin: 0; color: var(--suave); font-size: .85rem; }
+
+/* Módulo de saldo + fatura (topo do Resumo) */
+.modulo-saldo { margin-top: 10px; }
+.saldo-topo { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.saldo-topo .rotulo { display: block; color: var(--suave); font-size: .85rem; }
+.saldo-valor { font-size: 2rem; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.modulo-saldo > .nota { margin: 4px 0 0; }
+.botao-suave {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--acento);
+  border-radius: 999px;
+  background: var(--acento-claro);
+  color: var(--acento);
+  font-weight: 600;
+  font-size: .9rem;
+  cursor: pointer;
+}
+.botao-suave:hover { filter: brightness(.96); }
+.botao-suave:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+.fatura { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--borda); }
+.fatura .trilho { margin: 10px 0 2px; height: 8px; }
+.fatura .saldo-linhas { margin-top: 10px; }
+.fatura .previsto { border-top: 0; padding-top: 0; margin-top: 10px; }
+.fatura .lista { margin-top: 6px; }
+.selo.quitada { background: light-dark(#dff3e7, #1d3a2b); color: var(--positivo); }
+
+/* Checkbox "pago" nas listas */
+.esq { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.form-pago { margin: 0; display: flex; }
+input.caixa {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  flex: none;
+  accent-color: var(--acento);
+  cursor: pointer;
+}
+.lista li.pago .esq > div:last-child,
+.lista li.pago .valor { opacity: .55; }
+details.pagos { margin-top: 10px; }
+details.pagos summary { cursor: pointer; color: var(--suave); font-size: .85rem; padding: 4px 0; }
+details.pagos summary:hover { color: var(--acento); }
+.lista li:target { background: var(--acento-claro); border-radius: 8px; }
 
 /* Botão "Limpar tudo" (topo do Resumo) */
 .barra-pagina { display: flex; justify-content: flex-end; margin-top: 4px; }
@@ -391,7 +434,6 @@ input:focus, select:focus { outline: 2px solid var(--acento); outline-offset: -1
   .form-gasto { grid-template-columns: 1fr 1fr; }
   .form-gasto .grande { grid-column: 1 / -1; }
   .form-gasto .botao { grid-column: 1 / -1; grid-row: auto; order: 99; }
-  .form-gasto .recorrencia { grid-row: auto; }
 }
 @media (max-width: 560px) {
   nav { order: 3; width: 100%; }

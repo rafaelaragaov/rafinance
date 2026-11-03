@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS gastos (
     categoria      TEXT    NOT NULL,
     data           TEXT    NOT NULL,
     recorrencia_id TEXT,
+    pago           INTEGER NOT NULL DEFAULT 0,
     criado_em      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_gastos_data ON gastos (data);
@@ -98,6 +99,14 @@ def init_db():
     colunas = [linha[1] for linha in db.execute("PRAGMA table_info(gastos)")]
     if "recorrencia_id" not in colunas:
         db.execute("ALTER TABLE gastos ADD COLUMN recorrencia_id TEXT")
+    if "pago" not in colunas:
+        db.execute("ALTER TABLE gastos ADD COLUMN pago INTEGER NOT NULL DEFAULT 0")
+        # Bancos de antes do "pago": meses passados são histórico (já pagos); o mês atual
+        # e os futuros começam como "não pago" para você marcar o que já quitou.
+        db.execute(
+            "UPDATE gastos SET pago = 1 WHERE data < ?",
+            (date.today().replace(day=1).isoformat(),),
+        )
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_gastos_recorrencia ON gastos (recorrencia_id)"
     )
@@ -295,7 +304,7 @@ def resumo():
     inicio_mes = hoje.replace(day=1)
     fim_mes = ultimo_dia_do_mes(hoje)
 
-    # Totais = o que já foi gasto (até hoje). O que ainda vai vencer aparece em "A vencer".
+    # Cartões Hoje/Semana/Mês = gastos registrados até hoje (pagos ou não).
     total_hoje = total_periodo(db, hoje, hoje)
     total_semana = total_periodo(db, inicio_semana, hoje)
     total_mes = total_periodo(db, inicio_mes, hoje)
@@ -339,18 +348,29 @@ def resumo():
         (hoje.isoformat(),),
     ).fetchall()
 
-    a_vencer = db.execute(
-        "SELECT * FROM gastos WHERE data > ? AND data <= ? ORDER BY data, id",
-        (hoje.isoformat(), fim_mes.isoformat()),
+    # Fatura do mês: todos os gastos do mês, pagos ou não.
+    fatura = db.execute(
+        "SELECT * FROM gastos WHERE data BETWEEN ? AND ? ORDER BY data, id",
+        (inicio_mes.isoformat(), fim_mes.isoformat()),
     ).fetchall()
-    total_a_vencer = sum(g_["valor_centavos"] for g_ in a_vencer)
+    pendentes = [g_ for g_ in fatura if not g_["pago"]]
+    pagos = [g_ for g_ in fatura if g_["pago"]]
+    fatura_total = sum(g_["valor_centavos"] for g_ in fatura)
+    fatura_paga = sum(g_["valor_centavos"] for g_ in pagos)
+    falta_pagar = fatura_total - fatura_paga
 
-    # Saldo: "atual" = o que já aconteceu até hoje; "previsto" = mês inteiro.
-    receita_recebida = total_periodo(db, inicio_mes, hoje, "receitas")
-    receita_prevista = total_periodo(db, inicio_mes, fim_mes, "receitas")
-    a_receber = receita_prevista - receita_recebida
-    saldo_atual = receita_recebida - total_mes
-    saldo_previsto = receita_prevista - (total_mes + total_a_vencer)
+    # Saldo atual = receitas já recebidas (data até hoje) - gastos já pagos, de todos os meses.
+    recebido = db.execute(
+        "SELECT COALESCE(SUM(valor_centavos), 0) FROM receitas WHERE data <= ?",
+        (hoje.isoformat(),),
+    ).fetchone()[0]
+    ja_pago = db.execute(
+        "SELECT COALESCE(SUM(valor_centavos), 0) FROM gastos WHERE pago = 1"
+    ).fetchone()[0]
+    saldo_atual = recebido - ja_pago
+    sobra_apos_pagar = saldo_atual - falta_pagar
+    a_receber_mes = total_periodo(db, hoje + timedelta(days=1), fim_mes, "receitas") if hoje < fim_mes else 0
+
     qtd_gastos = db.execute("SELECT COUNT(*) FROM gastos").fetchone()[0]
     qtd_receitas = db.execute("SELECT COUNT(*) FROM receitas").fetchone()[0]
 
@@ -367,13 +387,16 @@ def resumo():
         grafico=grafico,
         categorias=categorias,
         recentes=recentes,
-        a_vencer=a_vencer,
-        total_a_vencer=total_a_vencer,
-        receita_recebida=receita_recebida,
-        a_receber=a_receber,
-        tem_receitas=receita_prevista > 0,
         saldo_atual=saldo_atual,
-        saldo_previsto=saldo_previsto,
+        sobra_apos_pagar=sobra_apos_pagar,
+        a_receber_mes=a_receber_mes,
+        fatura_total=fatura_total,
+        fatura_paga=fatura_paga,
+        falta_pagar=falta_pagar,
+        fatura_pct=round(fatura_paga / fatura_total * 100) if fatura_total else 0,
+        pendentes=pendentes,
+        pagos=pagos,
+        qtd_fatura=len(fatura),
         qtd_gastos=qtd_gastos,
         qtd_receitas=qtd_receitas,
         categorias_form=CATEGORIAS,
@@ -389,6 +412,8 @@ def adicionar():
         return redirect(destino)
 
     descricao, valor, categoria, data_iso = dados
+    data = date.fromisoformat(data_iso)
+    ja_paguei = bool(request.form.get("pago"))   # checkbox "Já paguei"
     db = get_db()
 
     if request.form.get("recorrencia"):
@@ -396,21 +421,22 @@ def adicionar():
         if not meses:
             flash("Recorrência: marque pelo menos um mês.", "erro")
             return redirect(destino)
-        dia = date.fromisoformat(data_iso).day
         grupo = uuid.uuid4().hex
         for ano, mes in meses:
+            # "Já paguei" vale para o mês da data escolhida; os outros meses nascem não pagos.
+            pago = int(ja_paguei and (ano, mes) == (data.year, data.month))
             db.execute(
-                "INSERT INTO gastos (descricao, valor_centavos, categoria, data, recorrencia_id) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (descricao, valor, categoria, vencimento(ano, mes, dia).isoformat(), grupo),
+                "INSERT INTO gastos (descricao, valor_centavos, categoria, data, recorrencia_id, pago) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (descricao, valor, categoria, vencimento(ano, mes, data.day).isoformat(), grupo, pago),
             )
         db.commit()
         flash(f"Gasto recorrente registrado em {len(meses)} mês(es).", "ok")
     else:
         db.execute(
-            "INSERT INTO gastos (descricao, valor_centavos, categoria, data) "
-            "VALUES (?, ?, ?, ?)",
-            (descricao, valor, categoria, data_iso),
+            "INSERT INTO gastos (descricao, valor_centavos, categoria, data, pago) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (descricao, valor, categoria, data_iso, int(ja_paguei)),
         )
         db.commit()
         flash("Gasto registrado.", "ok")
@@ -433,9 +459,7 @@ def lancamentos():
         (inicio.isoformat(), fim.isoformat()),
     ).fetchall())
     total = sum(g_["valor_centavos"] for g_ in gastos)
-    a_vencer_total = sum(
-        g_["valor_centavos"] for g_ in gastos if g_["data"] > hoje.isoformat()
-    )
+    pago_total = sum(g_["valor_centavos"] for g_ in gastos if g_["pago"])
 
     receitas = anexar_seguintes(db, "receitas", db.execute(
         "SELECT * FROM receitas WHERE data BETWEEN ? AND ? ORDER BY data DESC, id DESC",
@@ -459,8 +483,24 @@ def lancamentos():
         categorias_form=CATEGORIAS,
         hoje=hoje,
         hoje_iso=hoje.isoformat(),
-        a_vencer_total=a_vencer_total,
+        pago_total=pago_total,
+        falta_total=total - pago_total,
     )
+
+
+@app.route("/gastos/<int:gasto_id>/pago", methods=["POST"])
+def marcar_pago(gasto_id):
+    """Marca/desmarca um gasto como pago (o checkbox da lista)."""
+    # O formulário manda um "0" fixo e, se o checkbox estiver marcado, também um "1".
+    pago = int("1" in request.form.getlist("pago"))
+    db = get_db()
+    atualizados = db.execute(
+        "UPDATE gastos SET pago = ? WHERE id = ?", (pago, gasto_id)
+    ).rowcount
+    if not atualizados:
+        abort(404)
+    db.commit()
+    return redirect(destino_seguro(request.form.get("next"), url_for("resumo")))
 
 
 @app.route("/gastos/<int:gasto_id>/editar", methods=["GET", "POST"])

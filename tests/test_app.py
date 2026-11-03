@@ -20,17 +20,39 @@ class RaFinanceTests(unittest.TestCase):
     def tearDown(self):
         os.unlink(self.db_path)
 
-    def adicionar(self, descricao, valor, data, categoria="Outros"):
-        return self.client.post(
-            "/gastos",
-            data={
-                "descricao": descricao,
-                "valor": valor,
-                "categoria": categoria,
-                "data": data.isoformat(),
-            },
-            follow_redirects=True,
-        )
+    def adicionar(self, descricao, valor, data, categoria="Outros", pago=False):
+        dados = {
+            "descricao": descricao,
+            "valor": valor,
+            "categoria": categoria,
+            "data": data.isoformat(),
+        }
+        if pago:
+            dados["pago"] = "1"          # checkbox "Já paguei"
+        return self.client.post("/gastos", data=dados, follow_redirects=True)
+
+    def marcar(self, gasto_id, pago=True, **extras):
+        """Simula o checkbox da lista: manda um "0" fixo e, se marcado, também um "1"."""
+        dados = {"pago": ["0", "1"] if pago else ["0"]}
+        dados.update(extras)
+        return self.client.post(f"/gastos/{gasto_id}/pago", data=dados)
+
+    def saldo_atual(self, pagina=None):
+        pagina = pagina or self.client.get("/").data.decode()
+        return re.search(r'class="saldo-valor [^"]*">(-?R\$ [\d.,]+)</strong>', pagina).group(1)
+
+    def numeros_fatura(self, pagina=None):
+        """(total, pago, falta) mostrados no módulo de saldo da tela inicial."""
+        pagina = pagina or self.client.get("/").data.decode()
+        def valor(rotulo):
+            return re.search(rf'{rotulo}</span><strong class="[^"]*">(-?R\$ [\d.,]+)</strong>',
+                             pagina).group(1)
+        return valor("Total da fatura"), valor("Já pago"), valor("Falta pagar")
+
+    def cartoes(self, pagina):
+        """Valores dos cartões Hoje / Esta semana / Este mês."""
+        secao = re.search(r'<section class="cartoes">.*?</section>', pagina, re.S).group(0)
+        return re.findall(r"<strong>(R\$ [\d.,]+)</strong>", secao)
 
     def test_parse_valor(self):
         self.assertEqual(rafinance.parse_valor("12,50"), 1250)
@@ -178,18 +200,18 @@ class RaFinanceTests(unittest.TestCase):
         self.client.post(f"/gastos/{gastos[1]['id']}/excluir-proximos")
         self.assertEqual([g["data"] for g in self.gastos_no_banco()], ["2026-01-10"])
 
-    def test_a_vencer_fica_fora_dos_totais(self):
+    def test_cartoes_contam_ate_hoje_mas_a_fatura_inclui_o_mes_todo(self):
         hoje = date.today()
         amanha = hoje + timedelta(days=1)
         self.adicionar("Gasto de hoje", "10,00", hoje)
         self.adicionar("Boleto de amanha", "500,00", amanha)
         pagina = self.client.get("/").data.decode()
-        cartoes = re.findall(r"<strong>(R\$ [\d.,]+)</strong>", pagina)
-        self.assertEqual(cartoes[:3], ["R$ 10,00"] * 3)  # hoje, semana, mês
+        self.assertEqual(self.cartoes(pagina), ["R$ 10,00"] * 3)  # hoje, semana, mês
         if amanha.month == hoje.month:
-            self.assertIn("A vencer neste mês", pagina)
+            self.assertEqual(self.numeros_fatura(pagina)[0], "R$ 510,00")
             self.assertIn("Boleto de amanha", pagina)
         else:
+            self.assertEqual(self.numeros_fatura(pagina)[0], "R$ 10,00")
             self.assertNotIn("Boleto de amanha", pagina)
 
     def test_meses_a_partir_vira_o_ano(self):
@@ -404,30 +426,157 @@ class RaFinanceTests(unittest.TestCase):
         self.client.post(f"/receitas/{segunda['id']}/excluir-proximos")
         self.assertEqual([r["data"] for r in self.receitas_no_banco()], ["2026-01-05"])
 
-    def test_saldo_do_mes_no_resumo(self):
+    # ------------------------------------------------- saldo atual e fatura (pago / não pago)
+    def test_saldo_atual_so_desconta_o_que_foi_pago(self):
         hoje = date.today()
         self.receita(valor="1.000,00", data=hoje)
         self.adicionar("Mercado", "300,00", hoje)
         pagina = self.client.get("/").data.decode()
-        self.assertIn("Saldo do mês", pagina)
-        self.assertRegex(pagina, r'class="positivo">R\$ 1\.000,00</strong>')   # recebido
-        self.assertRegex(pagina, r'class="positivo">R\$ 700,00</strong>')     # saldo
-
-    def test_saldo_negativo_aparece_em_vermelho(self):
-        self.adicionar("Gasto grande", "50,00", date.today())
+        self.assertEqual(self.saldo_atual(pagina), "R$ 1.000,00")        # ainda não pagou
+        self.assertEqual(self.numeros_fatura(pagina), ("R$ 300,00", "R$ 0,00", "R$ 300,00"))
+        self.marcar(1)
         pagina = self.client.get("/").data.decode()
-        self.assertRegex(pagina, r'class="negativo">-R\$ 50,00</strong>')
+        self.assertEqual(self.saldo_atual(pagina), "R$ 700,00")
+        self.assertEqual(self.numeros_fatura(pagina), ("R$ 300,00", "R$ 300,00", "R$ 0,00"))
+        self.assertIn("Quitada", pagina)
 
-    def test_receita_futura_fica_fora_do_saldo_atual_mas_entra_no_previsto(self):
+    def test_fluxo_do_exemplo_academia_seguro_amazon_pagos_e_apple_pendente(self):
+        hoje = date.today()
+        self.receita(descricao="Salário", valor="3.000,00", data=hoje)
+        for nome, valor in (("Academia", "100,00"), ("Seguro", "350,00"),
+                            ("Amazon", "80,00"), ("Apple", "40,00")):
+            self.adicionar(nome, valor, hoje, "Contas")
+        self.assertEqual(self.numeros_fatura(), ("R$ 570,00", "R$ 0,00", "R$ 570,00"))
+        for gasto_id in (1, 2, 3):                                        # academia, seguro, amazon
+            self.marcar(gasto_id)
+        pagina = self.client.get("/").data.decode()
+        self.assertEqual(self.numeros_fatura(pagina), ("R$ 570,00", "R$ 530,00", "R$ 40,00"))
+        self.assertEqual(self.saldo_atual(pagina), "R$ 2.470,00")        # 3000 - 530
+        self.assertIn("sobram <b class=\"positivo\">R$ 2.430,00</b>", pagina)  # depois do Apple
+        self.assertNotIn("Quitada", pagina)
+        # só o Apple fica na lista "falta pagar"; os pagos ficam recolhidos em "Já pagos"
+        pendentes, pagos = pagina.split('<details class="pagos">')
+        self.assertIn("Apple", pendentes.split('<ul class="lista">')[1])
+        self.assertNotIn("Academia", pendentes.split('<ul class="lista">')[1])
+        for nome in ("Academia", "Seguro", "Amazon"):
+            self.assertIn(nome, pagos)
+        self.assertIn("Já pagos (3)", pagina)
+        self.marcar(4)                                                    # paga o Apple: quitou
+        pagina = self.client.get("/").data.decode()
+        self.assertEqual(self.numeros_fatura(pagina), ("R$ 570,00", "R$ 570,00", "R$ 0,00"))
+        self.assertEqual(self.saldo_atual(pagina), "R$ 2.430,00")
+        self.assertIn("Quitada", pagina)
+        self.assertIn("Tudo pago neste mês", pagina)
+
+    def test_saldo_negativo_e_aviso_quando_nao_cobre_a_fatura(self):
+        hoje = date.today()
+        self.receita(valor="100,00", data=hoje)
+        self.adicionar("Aluguel", "400,00", hoje)
+        pagina = self.client.get("/").data.decode()
+        self.assertIn("O saldo não cobre o que falta: faltam "
+                      "<b class=\"negativo\">R$ 300,00</b>", pagina)
+        self.marcar(1)                                                    # pagou mesmo sem saldo
+        pagina = self.client.get("/").data.decode()
+        self.assertEqual(self.saldo_atual(pagina), "-R$ 300,00")
+        self.assertRegex(pagina, r'class="saldo-valor negativo"')
+
+    def test_receita_futura_nao_entra_no_saldo_atual_mas_aparece_como_a_receber(self):
         hoje = date.today()
         amanha = hoje + timedelta(days=1)
         if amanha.month != hoje.month:
             self.skipTest("hoje é o último dia do mês")
         self.receita(valor="500,00", data=amanha)
         pagina = self.client.get("/").data.decode()
-        self.assertNotRegex(pagina, r'class="positivo">R\$ 500,00</strong>')   # recebido
-        self.assertIn("a receber <b>R$ 500,00</b>", pagina)
-        self.assertRegex(pagina, r'saldo previsto <b class="positivo">R\$ 500,00</b>')
+        self.assertEqual(self.saldo_atual(pagina), "R$ 0,00")
+        self.assertIn("Ainda a receber neste mês: <b>R$ 500,00</b>", pagina)
+
+    def test_saldo_e_acumulado_entre_meses(self):
+        self.receita(valor="1.000,00", data=date(2026, 1, 5))             # mês passado
+        self.adicionar("Antigo pago", "200,00", date(2026, 1, 10), pago=True)
+        self.adicionar("Antigo nao pago", "999,00", date(2026, 1, 11))    # não desconta
+        self.assertEqual(self.saldo_atual(), "R$ 800,00")
+        # a fatura é só do mês atual: gastos de janeiro não entram nela
+        self.assertIn("Nenhum gasto neste mês ainda", self.client.get("/").data.decode())
+
+    def test_gasto_futuro_marcado_como_pago_ja_desconta_do_saldo(self):
+        self.receita(valor="1.000,00", data=date.today())
+        self.adicionar("Adiantado", "250,00", date.today() + timedelta(days=60), pago=True)
+        self.assertEqual(self.saldo_atual(), "R$ 750,00")
+
+    def test_marcar_e_desmarcar_pago(self):
+        self.adicionar("Conta", "10,00", date.today())
+        self.assertEqual(self.gastos_no_banco()[0]["pago"], 0)
+        self.marcar(1, pago=True)
+        self.assertEqual(self.gastos_no_banco()[0]["pago"], 1)
+        self.marcar(1, pago=False)                                        # checkbox desmarcado
+        self.assertEqual(self.gastos_no_banco()[0]["pago"], 0)
+        self.assertEqual(self.marcar(99).status_code, 404)
+
+    def test_marcar_pago_volta_para_o_ponto_da_tela(self):
+        self.adicionar("Conta", "10,00", date.today())
+        resposta = self.marcar(1, next="/#fatura")
+        self.assertEqual(resposta.headers["Location"], "/#fatura")
+        resposta = self.marcar(1, next="https://exemplo.com")
+        self.assertEqual(resposta.headers["Location"], "/")
+
+    def test_ja_paguei_ao_criar_gasto(self):
+        self.adicionar("Pago na hora", "10,00", date.today(), pago=True)
+        self.adicionar("Fica pendente", "20,00", date.today())
+        self.assertEqual([g["pago"] for g in self.gastos_no_banco()], [1, 0])
+
+    def test_ja_paguei_em_recorrente_vale_so_para_o_mes_da_data(self):
+        self.client.post("/gastos", data={
+            "descricao": "Seguro", "valor": "350,00", "categoria": "Contas",
+            "data": "2026-03-10", "recorrencia": "1", "pago": "1",
+            "meses": ["2026-03", "2026-04", "2026-05"]})
+        self.assertEqual([(g["data"], g["pago"]) for g in self.gastos_no_banco()],
+                         [("2026-03-10", 1), ("2026-04-10", 0), ("2026-05-10", 0)])
+
+    def test_copias_de_recorrencia_criadas_na_edicao_nascem_nao_pagas(self):
+        self.adicionar("Seguro", "350,00", date(2026, 3, 10), "Contas", pago=True)
+        self.editar_gasto(1, recorrencia="1", meses=["2026-03", "2026-04"])
+        self.assertEqual([(g["data"], g["pago"]) for g in self.gastos_no_banco()],
+                         [("2026-03-10", 1), ("2026-04-10", 0)])         # o original continua pago
+
+    def test_editar_gasto_nao_mexe_no_pago(self):
+        self.adicionar("Seguro", "350,00", date(2026, 3, 10), "Contas", pago=True)
+        self.editar_gasto(1, descricao="Seguro novo")
+        self.assertEqual(self.gastos_no_banco()[0]["pago"], 1)
+
+    def test_formularios_mostram_ja_paguei_so_ao_criar(self):
+        pagina = self.client.get("/").data.decode()
+        self.assertIn("Já paguei", self.formulario(pagina, "/gastos"))
+        self.adicionar("Algo", "5,00", date.today())
+        edicao = self.client.get("/gastos/1/editar").data.decode()
+        self.assertNotIn("Já paguei", self.formulario(edicao, "/gastos/1/editar"))
+
+    def test_checkbox_pago_nas_listas_reflete_o_estado(self):
+        self.adicionar("Pago", "10,00", date.today(), pago=True)
+        self.adicionar("Pendente", "20,00", date.today())
+        pagina = self.client.get("/lancamentos").data.decode()
+        marcados = re.findall(r'class="caixa" name="pago" value="1" (checked)?', pagina)
+        self.assertEqual(sorted(m or "nao" for m in marcados), ["checked", "nao"])
+        self.assertIn('class="pago"', pagina)                             # item pago fica esmaecido
+        self.assertEqual(self.client.get("/").data.decode().count('name="pago" value="1"'),
+                         3)                                               # 2 na fatura + "Já paguei"
+
+    def test_lancamentos_mostra_fatura_paga_e_o_que_falta(self):
+        self.adicionar("A", "100,00", date(2026, 3, 5), pago=True)
+        self.adicionar("B", "40,00", date(2026, 3, 6))
+        pagina = self.client.get("/lancamentos?mes=2026-03").data.decode()
+        self.assertRegex(pagina, r"Fatura do mês: <strong>R\$ 140,00</strong>")
+        self.assertRegex(pagina, r'pago <strong class="positivo">R\$ 100,00</strong>')
+        self.assertRegex(pagina, r'falta <strong class="negativo">R\$ 40,00</strong>')
+        self.marcar(2)
+        pagina = self.client.get("/lancamentos?mes=2026-03").data.decode()
+        self.assertIn("Quitada", pagina)
+        self.assertNotIn("falta <strong", pagina)
+
+    def test_modulo_de_saldo_tem_botao_adicionar_saldo(self):
+        pagina = self.client.get("/").data.decode()
+        self.assertEqual(pagina.count("data-abrir-receita"), 2)           # topo (+) e módulo
+        self.assertIn("+ Adicionar saldo", pagina)
+        self.assertIn("Nenhum gasto neste mês ainda", pagina)
 
     def test_lancamentos_lista_receitas_do_mes(self):
         self.receita(descricao="Adiantamento", valor="800,00", data=date(2026, 3, 5))
@@ -593,6 +742,9 @@ class RaFinanceTests(unittest.TestCase):
             VALUES ('Antigo', 1000, 'Outros', '2026-01-05');
             """
         )
+        con.execute(
+            "INSERT INTO gastos (descricao, valor_centavos, categoria, data) "
+            "VALUES ('Deste mes', 2000, 'Outros', ?)", (date.today().isoformat(),))
         con.commit()
         con.close()
         try:
@@ -601,13 +753,21 @@ class RaFinanceTests(unittest.TestCase):
             rafinance.init_db()  # rodar de novo não pode quebrar
             con = sqlite3.connect(caminho)
             colunas = [linha[1] for linha in con.execute("PRAGMA table_info(gastos)")]
-            linhas = con.execute("SELECT descricao, recorrencia_id FROM gastos").fetchall()
+            linhas = con.execute(
+                "SELECT descricao, recorrencia_id, pago FROM gastos ORDER BY id").fetchall()
             con.close()
         finally:
             rafinance.app.config["DATABASE"] = self.db_path
             os.unlink(caminho)
         self.assertIn("recorrencia_id", colunas)
-        self.assertEqual(linhas, [("Antigo", None)])
+        self.assertIn("pago", colunas)
+        # mês passado = histórico (pago); mês atual começa como não pago
+        self.assertEqual(linhas, [("Antigo", None, 1), ("Deste mes", None, 0)])
+
+    def test_migracao_do_pago_nao_repete_ao_reabrir_o_banco(self):
+        self.adicionar("Deste mes", "20,00", date.today())
+        rafinance.init_db()                       # reabrir não pode marcar nada como pago
+        self.assertEqual(self.gastos_no_banco()[0]["pago"], 0)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
-{# Formulário de gasto. Variáveis: acao, gasto (opcional), next_url (opcional), rotulo_botao, com_recorrencia (opcional) #}
+{# Formulário de gasto. Variáveis: acao, gasto (opcional), next_url (opcional), rotulo_botao,
+   com_recorrencia (opcional), com_pago (opcional: checkbox "Já paguei", só ao criar) #}
 <form method="post" action="{{ acao }}" class="form-gasto">
   {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
 
@@ -29,6 +30,13 @@
     <input type="date" name="data" required
            value="{{ gasto.data if gasto else hoje_g.isoformat() }}">
   </label>
+
+  {% if com_pago %}
+    <label class="check cheio">
+      <input type="checkbox" name="pago" value="1">
+      Já paguei <small>(marque se esse gasto já foi pago)</small>
+    </label>
+  {% endif %}
 
   {% if com_recorrencia %}
     {% include "_recorrencia.html" %}

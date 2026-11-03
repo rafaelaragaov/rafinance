@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_pago.html" import caixa_pago %}
 {% block title %}Lançamentos{% endblock %}
 
 {# Botão "excluir" de um item. Se ele faz parte de uma recorrência e ainda há meses
@@ -26,17 +27,23 @@
     <h2 class="mes">{{ mes_label }}</h2>
     <a class="seta" href="{{ url_for('lancamentos', mes=mes_proximo) }}" aria-label="Próximo mês">→</a>
   </div>
-  <p class="total-mes">Gastos do mês: <strong>{{ total|brl }}</strong>
-    {% if a_vencer_total %}<small>(inclui {{ a_vencer_total|brl }} a vencer)</small>{% endif %}
+  <p class="total-mes">Fatura do mês: <strong>{{ total|brl }}</strong>
+    {% if gastos %}
+      · pago <strong class="positivo">{{ pago_total|brl }}</strong>
+      · {% if falta_total %}falta <strong class="negativo">{{ falta_total|brl }}</strong>{% else %}<span class="selo quitada">Quitada</span>{% endif %}
+    {% endif %}
   </p>
 
   {% if gastos %}
     <ul class="lista">
       {% for g in gastos %}
-        <li>
-          <div>
-            <strong>{{ g.descricao }}</strong>
-            <small>{{ g.data|data_curta }} · {{ g.categoria }}{% if g.recorrencia_id %} · <span class="selo">recorrente</span>{% endif %}{% if g.data > hoje_iso %} · <span class="selo vencer">a vencer</span>{% endif %}</small>
+        <li class="{{ 'pago' if g.pago }}" id="g{{ g.id }}">
+          <div class="esq">
+            {{ caixa_pago(g, url_for('lancamentos', mes=mes_atual, _anchor='g' ~ g.id)) }}
+            <div>
+              <strong>{{ g.descricao }}</strong>
+              <small>{{ g.data|data_curta }} · {{ g.categoria }}{% if g.recorrencia_id %} · <span class="selo">recorrente</span>{% endif %}{% if not g.pago and g.data > hoje_iso %} · <span class="selo vencer">a vencer</span>{% endif %}</small>
+            </div>
           </div>
           <div class="direita">
             <span class="valor">{{ g.valor_centavos|brl }}</span>
@@ -85,6 +92,7 @@
   {% set next_url = url_for('lancamentos', mes=mes_atual) %}
   {% set rotulo_botao = 'Adicionar' %}
   {% set com_recorrencia = true %}
+  {% set com_pago = true %}
   {% include "_form_gasto.html" %}
 </section>
 

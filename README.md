@@ -3,27 +3,46 @@
 Gestão financeira pessoal, simples e minimalista. Registre seus gastos em segundos e veja
 na hora quanto gastou **hoje**, **nesta semana** e **neste mês**.
 
-> Protótipo v0.3 — em desenvolvimento.
+> Protótipo v0.4 — em desenvolvimento.
 
 ## Telas
 
 | Tela | O que faz |
 |------|-----------|
-| **Resumo** | Totais de hoje / semana / mês, **saldo do mês**, gráfico dos últimos 7 dias, gastos por categoria, bloco "A vencer neste mês" e formulário rápido de novo gasto |
-| **Lançamentos** | Gastos e receitas por mês (navegação ← →), com editar e excluir |
+| **Resumo** | **Saldo atual** com a **fatura do mês** (total, já pago, falta pagar), totais de hoje / semana / mês, formulário rápido de novo gasto, gráfico dos últimos 7 dias e gastos por categoria |
+| **Lançamentos** | Gastos e receitas por mês (navegação ← →), com **checkbox de pago**, editar e excluir |
 | **Editar** | Corrige um gasto ou uma receita |
 
-Em todas as telas, o topo tem dois ícones: **+** (adicionar receita) e **◐** (aparência).
+Em todas as telas, o topo tem dois ícones: **+** (adicionar saldo) e **◐** (aparência).
 
-### Receitas e saldo (botão +)
+### Saldo atual, fatura e pago / não pago
 
-O **+** abre o formulário de **Nova receita** (salário, freelance...). Quem recebe por quinzena marca
+No topo do **Resumo** fica o módulo de saldo:
+
+- **Saldo atual** = tudo o que você já recebeu (receitas até hoje) − tudo o que você já **marcou como
+  pago**. Gasto não pago ainda não sai do saldo.
+- **+ Adicionar saldo** registra uma receita (salário, freelance ou o saldo que você já tem, com a
+  data de hoje).
+- **Fatura do mês**: *total*, *já pago* e *falta pagar*, com barra de progresso. Quando tudo está
+  pago aparece **Quitada**. O app também diz quanto sobra depois de pagar o que falta — ou quanto
+  o saldo não cobre.
+- Cada gasto tem um **checkbox**: na lista "falta pagar" do Resumo e em **Lançamentos**. Marcar ou
+  desmarcar salva na hora. Os já pagos ficam recolhidos em "Já pagos".
+- Gasto novo nasce **não pago**; marque **Já paguei** no formulário se já pagou. Numa recorrência,
+  "Já paguei" vale só para o mês da data escolhida.
+- Bancos antigos são migrados: gastos de meses anteriores ficam como **pagos** (histórico) e os do
+  mês atual em diante como **não pagos**.
+
+Os cartões Hoje / Semana / Mês continuam somando o que foi registrado até a data, pago ou não.
+
+### Receitas (botão +)
+
+O **+** abre o formulário de **Adicionar saldo** (receita). Quem recebe por quinzena marca
 **Quinzenal**: informa o dia do 2º recebimento (e, se for diferente, o valor do 2º) e o RaFinance
 cria **dois recebimentos por mês**. Combinado com **Recorrência**, cria os dois recebimentos em
 cada mês escolhido (ex.: dia 5 e dia 20, de novembro a abril).
 
-O **Saldo do mês** no Resumo mostra *recebido − gasto* até hoje e, abaixo, o previsto até o fim do
-mês (a receber, a pagar e saldo previsto).
+Receitas com data futura não entram no saldo atual; aparecem como "ainda a receber neste mês".
 
 ### Excluir e limpar
 
@@ -51,8 +70,8 @@ No formulário **Novo gasto**, marque **Recorrência** (seguro do carro, aluguel
 Aparecem 12 meses a partir da data escolhida; marque os meses desejados e o RaFinance cria um
 gasto em cada um, **no mesmo dia** (em meses mais curtos, no último dia: 31 → 28/30).
 
-- Os totais de hoje/semana/mês contam só o que **já venceu**; o que ainda vai vencer neste mês
-  aparece em **A vencer neste mês**.
+- Os cartões de hoje/semana/mês contam só o que já tem data até hoje; os gastos que ainda vão
+  vencer neste mês entram na **fatura do mês** (marcados "a vencer" em Lançamentos).
 - Na tela Lançamentos, itens recorrentes têm o selo `recorrente` e o botão **excluir próximos**
   (apaga aquele mês e os seguintes, mantendo os anteriores).
 - **Dá para tornar recorrente um lançamento que já existe:** em Lançamentos, clique em **editar**,
@@ -109,7 +128,8 @@ rafinance/
 
 ## Roadmap
 
-- [x] Receitas (botão +, quinzenal) e saldo do mês
+- [x] Receitas (botão +, quinzenal)
+- [x] Saldo atual, fatura do mês e checkbox pago / não pago
 - [x] Temas: modo claro/escuro e 3 cores
 - [ ] Metas / orçamento por categoria
 - [x] Gastos recorrentes (checkbox Recorrência + seleção de meses)

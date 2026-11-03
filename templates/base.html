@@ -23,7 +23,7 @@
 
     <div class="ferramentas">
       <button type="button" class="icone mais" data-abrir-receita
-              aria-label="Adicionar receita" title="Adicionar receita">
+              aria-label="Adicionar saldo" title="Adicionar saldo">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       </button>
 
@@ -69,8 +69,8 @@
     <div class="dialogo-corpo">
       <div class="dialogo-topo">
         <div>
-          <h2 id="titulo-receita">Nova receita</h2>
-          <p>Para quem recebe por quinzena: marque "Quinzenal".</p>
+          <h2 id="titulo-receita">Adicionar saldo</h2>
+          <p>Salário, freelance ou o saldo que você já tem. Quem recebe por quinzena: marque "Quinzenal".</p>
         </div>
         <button type="button" class="icone" data-fechar aria-label="Fechar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -79,7 +79,7 @@
       {% set acao = url_for('adicionar_receita') %}
       {% set receita = none %}
       {% set next_url = request.full_path.rstrip('?') %}
-      {% set rotulo_botao = 'Adicionar receita' %}
+      {% set rotulo_botao = 'Adicionar saldo' %}
       {% set com_extras = true %}
       {% set meses_edicao = none %}
       {% include "_form_receita.html" %}

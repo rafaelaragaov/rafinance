@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_pago.html" import caixa_pago %}
 {% block title %}Resumo{% endblock %}
 
 {% block content %}
@@ -12,6 +13,88 @@
     </button>
   </form>
 </div>
+
+<section class="bloco modulo-saldo" id="saldo">
+  <div class="saldo-topo">
+    <div>
+      <span class="rotulo">Saldo atual</span>
+      <strong class="saldo-valor {{ 'positivo' if saldo_atual >= 0 else 'negativo' }}">{{ saldo_atual|brl }}</strong>
+    </div>
+    <button type="button" class="botao-suave" data-abrir-receita>+ Adicionar saldo</button>
+  </div>
+  <p class="nota">O que você já recebeu menos o que já pagou.
+    {% if a_receber_mes %}Ainda a receber neste mês: <b>{{ a_receber_mes|brl }}</b>.{% endif %}</p>
+
+  <div class="fatura" id="fatura">
+    <div class="bloco-topo">
+      <h2>Fatura de {{ mes_label }}</h2>
+      {% if qtd_fatura and not falta_pagar %}
+        <span class="selo quitada">Quitada</span>
+      {% elif qtd_fatura %}
+        <span class="suave">{{ pendentes|length }} de {{ qtd_fatura }} a pagar</span>
+      {% endif %}
+    </div>
+
+    {% if qtd_fatura %}
+      <div class="trilho" role="img" aria-label="{{ fatura_pct }}% da fatura paga">
+        <div class="preenchido" style="width: {{ fatura_pct }}%"></div>
+      </div>
+      <div class="saldo-linhas">
+        <div><span>Total da fatura</span><strong class="num">{{ fatura_total|brl }}</strong></div>
+        <div><span>Já pago</span><strong class="positivo">{{ fatura_paga|brl }}</strong></div>
+        <div><span>Falta pagar</span><strong class="{{ 'negativo' if falta_pagar else 'positivo' }}">{{ falta_pagar|brl }}</strong></div>
+      </div>
+
+      {% if falta_pagar %}
+        <p class="previsto">
+          {% if sobra_apos_pagar >= 0 %}
+            Depois de pagar tudo, sobram <b class="positivo">{{ sobra_apos_pagar|brl }}</b>.
+          {% else %}
+            O saldo não cobre o que falta: faltam <b class="negativo">{{ (-sobra_apos_pagar)|brl }}</b> para pagar tudo.
+          {% endif %}
+        </p>
+        <ul class="lista">
+          {% for g in pendentes %}
+            <li id="g{{ g.id }}">
+              <div class="esq">
+                {{ caixa_pago(g, url_for('resumo', _anchor='fatura')) }}
+                <div>
+                  <strong>{{ g.descricao }}</strong>
+                  <small>{{ g.data|data_curta }} · {{ g.categoria }}{% if g.recorrencia_id %} · <span class="selo">recorrente</span>{% endif %}</small>
+                </div>
+              </div>
+              <span class="valor">{{ g.valor_centavos|brl }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="previsto">Tudo pago neste mês.</p>
+      {% endif %}
+
+      {% if pagos %}
+        <details class="pagos">
+          <summary>Já pagos ({{ pagos|length }})</summary>
+          <ul class="lista">
+            {% for g in pagos %}
+              <li class="pago" id="g{{ g.id }}">
+                <div class="esq">
+                  {{ caixa_pago(g, url_for('resumo', _anchor='fatura')) }}
+                  <div>
+                    <strong>{{ g.descricao }}</strong>
+                    <small>{{ g.data|data_curta }} · {{ g.categoria }}</small>
+                  </div>
+                </div>
+                <span class="valor">{{ g.valor_centavos|brl }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endif %}
+    {% else %}
+      <p class="vazio">Nenhum gasto neste mês ainda. Adicione abaixo e marque como pago quando quitar.</p>
+    {% endif %}
+  </div>
+</section>
 
 <section class="cartoes">
   <div class="cartao">
@@ -33,32 +116,13 @@
 </section>
 
 <section class="bloco">
-  <div class="bloco-topo">
-    <h2>Saldo do mês</h2>
-    <span class="suave">{{ mes_label }}</span>
-  </div>
-  <div class="saldo-linhas">
-    <div><span>Recebido</span><strong class="positivo">{{ receita_recebida|brl }}</strong></div>
-    <div><span>Gasto</span><strong>{{ total_mes|brl }}</strong></div>
-    <div><span>Saldo</span><strong class="{{ 'positivo' if saldo_atual >= 0 else 'negativo' }}">{{ saldo_atual|brl }}</strong></div>
-  </div>
-  {% if tem_receitas %}
-    <p class="previsto">
-      Até o fim do mês: a receber <b>{{ a_receber|brl }}</b> · a pagar <b>{{ total_a_vencer|brl }}</b>
-      · saldo previsto <b class="{{ 'positivo' if saldo_previsto >= 0 else 'negativo' }}">{{ saldo_previsto|brl }}</b>
-    </p>
-  {% else %}
-    <p class="previsto">Toque no <b>+</b> no topo para adicionar sua receita (dá para marcar como quinzenal).</p>
-  {% endif %}
-</section>
-
-<section class="bloco">
   <h2>Novo gasto</h2>
   {% set acao = url_for('adicionar') %}
   {% set gasto = none %}
   {% set next_url = none %}
   {% set rotulo_botao = 'Adicionar' %}
   {% set com_recorrencia = true %}
+  {% set com_pago = true %}
   {% include "_form_gasto.html" %}
 </section>
 
@@ -93,26 +157,6 @@
     {% endif %}
   </section>
 </div>
-
-{% if a_vencer %}
-<section class="bloco">
-  <div class="bloco-topo">
-    <h2>A vencer neste mês</h2>
-    <strong class="valor">{{ total_a_vencer|brl }}</strong>
-  </div>
-  <ul class="lista">
-    {% for g in a_vencer %}
-      <li>
-        <div>
-          <strong>{{ g.descricao }}</strong>
-          <small>{{ g.data|data_curta }} · {{ g.categoria }}{% if g.recorrencia_id %} · <span class="selo">recorrente</span>{% endif %}</small>
-        </div>
-        <span class="valor">{{ g.valor_centavos|brl }}</span>
-      </li>
-    {% endfor %}
-  </ul>
-</section>
-{% endif %}
 
 <section class="bloco">
   <div class="bloco-topo">

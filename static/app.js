@@ -65,6 +65,11 @@ if (dialogo && typeof dialogo.showModal === "function") {
   dialogo.addEventListener("click", (e) => { if (e.target === dialogo) dialogo.close(); });
 }
 
+/* ------------------------------------------ checkbox "pago": envia ao clicar */
+document.querySelectorAll("form[data-auto-envio]").forEach((form) => {
+  form.addEventListener("change", () => form.requestSubmit());
+});
+
 /* ------------------------------------- excluir: "só este" ou "este e os seguintes" */
 const dialogoExcluir = document.getElementById("dialogo-excluir");
 if (dialogoExcluir) {
